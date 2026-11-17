@@ -83,15 +83,19 @@ function clocks(indices:number[]){
 function home(){
   return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+'> Rated game</label>':'')+button(queue?'cancel':'queue',queue?'Cancel search':'Find online match','primary full')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section>'+ad()+'</main>'
 }
+let reviewCache:{source:Match;index:number;view:Match}|null=null
 function view(){
   if(review===null)return m!
+  if(reviewCache?.source===m && reviewCache.index===review)return reviewCache.view
   let game=seed
   for(const entry of m!.log.slice(0,review)){
     if(entry.action)game=play(game,entry.action,()=>entry.event?.roll??4)?.game??game
     if(entry.result)game={...game,result:entry.result}
   }
   const entry=m!.log[review-1]
-  return {...m!,game,start:0,clock:entry?.clock??makeMatch(m!.control).clock,log:m!.log.slice(0,review)}
+  const snapshot={...m!,game,start:0,clock:entry?.clock??makeMatch(m!.control).clock,log:m!.log.slice(0,review)}
+  reviewCache={source:m!,index:review,view:snapshot}
+  return snapshot
 }
 const canAct=()=>Boolean(m?.start&&!m.game.result&&!busy&&review===null&&(mode==='online'?seat===m.game.side:mode!=='bot'||m.game.side==='white'))
 function player(side:Side,v:Match){
@@ -119,7 +123,7 @@ function game(){
     const annotations=[x.roll?'🎲 '+x.roll+' · '+moodNames[x.mood!]:x.mood==='bloodlust'?'Bloodlust activated':'',x.capture?.side===x.side?'Friendly capture':'',...x.vanished.map(p=>name(p.square)+' lost to remorse')].filter(Boolean)
     return tab==='Events'&&!annotations.length&&x.action.type!=='absolve'?'':'<li><span>'+x.turn+' '+(x.side==='white'?'○':'●')+'</span><div><b>'+safe(x.text)+'</b>'+annotations.map(a=>'<small>'+safe(a)+'</small>').join('')+'</div></li>'
   }).join('')
-  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?'PRACTICE VS BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(canAct()&&g.bonus!==null?button('end','End turn','primary'):'')+(actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel absolution':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status)+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2><div class="die-row"><span id="die">'+dice[(rolled?.roll??5)-1]+'</span><div><b>'+(rolled?'Rolled '+rolled.roll:'Awaiting a capture')+'</b><small>'+(rolled?.mood?moodNames[rolled.mood]:'One roll per piece')+'</small></div></div>'+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?rules:history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div>'+ad()+'</aside></main>'
+  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?'PRACTICE VS BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side==='white')?button('end','End turn','primary'):'')+(actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel absolution':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status)+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2><div class="die-row"><span id="die">'+dice[(rolled?.roll??5)-1]+'</span><div><b>'+(rolled?'Rolled '+rolled.roll:'Awaiting a capture')+'</b><small>'+(rolled?.mood?moodNames[rolled.mood]:'One roll per piece')+'</small></div></div>'+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?rules:history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div>'+ad()+'</aside></main>'
 }
 function render(){
   const focused=document.activeElement instanceof HTMLElement&&document.activeElement.matches('[data-square]')
@@ -202,9 +206,10 @@ function apply(data:Snapshot){
   if(m&&data.match.version<m.version)return
   const first=!m
   const changed=first||m?.version!==data.match.version||seat!==data.seat
-  m=data.match;offset=data.now-Date.now();info=data.room;seat=data.seat
-  if(first){flipped=seat==='black';soundVersion=m.version}
-  if(changed){status='';render();if(!first&&review===null)effects(m);const node=$('#log');if(node&&review===null)node.scrollTop=node.scrollHeight}
+  if(changed)m=data.match
+  offset=data.now-Date.now();info=data.room;seat=data.seat
+  if(first){flipped=seat==='black';soundVersion=data.match.version}
+  if(changed){status='';render();if(!first&&review===null)effects(data.match);const node=$('#log');if(node&&review===null)node.scrollTop=node.scrollHeight}
 }
 function wire(room:string){
   if(id!==room)return
@@ -310,7 +315,11 @@ async function send(action:Command){
   selected=null;absolve=false
   if(mode==='online'){
     const room=id;busy=true
-    try{const data=await api<Snapshot>('room/'+room+'/command',{action,version:m.version,id:crypto.randomUUID()});if(id===room)apply(data)}
+    try{
+      const data=await api<Snapshot>('room/'+room+'/command',{action,version:m.version,id:crypto.randomUUID()})
+      busy=false
+      if(id===room)apply(data)
+    }
     catch(e){if(id===room){tell((e as Error).message);void sync()}}
     finally{busy=false}
     return
