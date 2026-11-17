@@ -1,0 +1,32 @@
+{
+  "name": "remorsechess",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test tests/*.test.ts",
+    "dev": "vite build && wrangler dev",
+    "build": "vite build",
+    "check": "tsc --noEmit",
+    "deploy": "node scripts/deploy.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LukasJT/remorsechess.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/LukasJT/remorsechess/issues"
+  },
+  "homepage": "https://github.com/LukasJT/remorsechess#readme",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261117.1",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "wrangler": "^4.164.0"
+  }
+}
