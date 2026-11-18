@@ -394,9 +394,10 @@ export class Lobby extends DurableObject<Env> {
 export default {
   async fetch(req:Request,env:Env):Promise<Response>{
     const url=new URL(req.url)
-    if(url.hostname==='www.remorsechess.com'){
+    if(url.hostname==='www.remorsechess.com' || (url.hostname==='remorsechess.com' && url.protocol==='http:')){
       url.hostname='remorsechess.com'
-      return Response.redirect(url.href,301)
+      url.protocol='https:'
+      return Response.redirect(url.href,308)
     }
     if(url.pathname.startsWith('/banner/'))return banner(url.pathname.slice(8))
     if(!url.pathname.startsWith('/api/')){

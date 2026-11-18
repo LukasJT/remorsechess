@@ -4,6 +4,7 @@
 | --- | --- | --- |
 | [Homepage](https://remorsechess.com/) | Remorse Chess, play Remorse Chess online | What the game is and how to start a match |
 | [Rules](https://remorsechess.com/rules/) | Remorse Chess rules, dice rolls, bishop absolution | The roll table, turn sequence, bloodlust, examples and end conditions |
+| [Strategy](https://remorsechess.com/strategy/) | Remorse Chess strategy, tactics, how to win | Original diagrams showing a bishop rescue, a two-move king capture, and a bloodlust decision |
 | [History](https://remorsechess.com/history/) | Remorse Chess creator, original Remorse Chess TikTok | Who created it, what the original demonstration showed and how the browser edition plays |
 
 ## Publish and request discovery
@@ -15,7 +16,7 @@
 ## Measure and improve
 
 - After seven days, check the sitemap status and inspect each URL for index status, Google-selected canonical, and the most recent crawl. Resolve any fetch failures, competing canonicals, or unexpected exclusions.
-- Over the first month, track impressions, clicks, click-through rate, and average position by query and landing page. Use the exact branded query for the homepage and track rules and creator searches for the two guides.
+- Over the first month, track impressions, clicks, click-through rate, and average position by query and landing page. Use the exact branded query for the homepage and track rules, strategy, and creator searches for the guides. Check the homepage’s site name and favicon once Google recrawls it.
 - Keep the rules page current with the engine and add worked examples when players repeatedly ask the same question. Link to the original video when discussing the creator’s demo.
 - Earn links through playthroughs and communities discussing the variant. With the site owner’s approval, offer the creator and relevant writers a link to the playable edition and the attribution page. Skip paid placements and link exchanges.
 

@@ -79,14 +79,54 @@ p, li, td { line-height: 1.65; }
 .rolls tbody th { color: var(--gold); white-space: nowrap; }
 .example { background: var(--surface); border: 1px solid var(--line); padding: 1rem 1.15rem; margin: 1rem 0; }
 .example p:last-child { margin-bottom: 0; }
-.source-list { list-style: none; padding: 0 !important; }
+.guide-copy .source-list { list-style: none; padding: 0; }
 .source-list li { padding-block: .6rem; border-top: 1px solid var(--line); }
 .source-list small { display: block; color: var(--muted); font-size: .875rem; }
+.tactic-position {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+  align-items: end;
+  gap: .9rem 1.1rem;
+  margin: 1rem 0;
+}
+.tactic-position figcaption { max-width: 30ch; color: var(--muted); font-size: .925rem; line-height: 1.55; padding-bottom: 1.3rem; }
+.tactic-board {
+  display: grid;
+  grid-template: auto auto / 1.3rem minmax(0, 1fr);
+  color: var(--muted);
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: .24rem .24rem 0 0;
+}
+.tactic-grid {
+  position: relative;
+  grid-area: 1 / 2;
+  display: grid;
+  grid-template: repeat(8, 1fr) / repeat(8, 1fr);
+  aspect-ratio: 1;
+  background: conic-gradient(from 90deg, #d7ad7c 25%, #a56a52 0 50%, #d7ad7c 0 75%, #a56a52 0) 0 0 / 25% 25%;
+  container-type: inline-size;
+}
+.tactic-grid > span { display: grid; place-items: center; min-width: 0; }
+.tactic-grid .marked { margin: 1px; border: 2px solid #fcf0a0; box-shadow: inset 0 0 0 1px #59402e; }
+.tactic-grid :is(.white-piece, .black-piece) { font: 12cqi/1 "Segoe UI Symbol", "DejaVu Sans", sans-serif; z-index: 1; }
+.tactic-grid .white-piece { color: #fff3ca; text-shadow: 0 1px 1px #22161b, 0 0 2px #22161b; }
+.tactic-grid .black-piece { color: #281923; text-shadow: 0 1px #e2b695; }
+.tactic-files, .tactic-ranks { display: grid; text-align: center; align-items: center; }
+.tactic-files { grid-area: 2 / 2; grid-template-columns: repeat(8, 1fr); min-height: 1.25rem; }
+.tactic-ranks { grid-area: 1 / 1; grid-template-rows: repeat(8, 1fr); }
 .site-footer { color: var(--muted); border-top: 1px solid var(--line); padding-block: 1rem 1.5rem; font-size: .9rem; display: flex; gap: .45rem 1.15rem; flex-wrap: wrap; }
 @media (max-width: 44rem) {
   .guide-layout { grid-template-columns: minmax(0, 1fr); gap: 1.7rem; }
   .contents { position: static; }
   .contents ul { display: flex; flex-wrap: wrap; gap: .2rem 1.1rem; }
+}
+@media (max-width: 30rem) {
+  .tactic-position { grid-template-columns: minmax(0, 1fr); }
+  .tactic-board { width: min(100%, 18rem); }
+  .tactic-position figcaption { max-width: none; padding-bottom: 0; }
 }
 @media (max-width: 24rem) {
   .rolls th, .rolls td { padding-inline: .4rem; }
