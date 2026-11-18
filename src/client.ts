@@ -2,7 +2,7 @@ import './style.css'
 import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,type Action,type Side,type Kind} from './rules.ts'
 import {command,makeMatch,expire,remaining,presets,type Match,type Control,type Command} from './match.ts'
 import {pool,deviation,type Rating} from './rating.ts'
-import {difficulties,type Difficulty} from './bot.ts'
+import {difficulties,type Difficulty} from './bot-levels.ts'
 import type {PublicKeyCredentialCreationOptionsJSON,PublicKeyCredentialRequestOptionsJSON} from '@simplewebauthn/browser'
 const root=document.querySelector<HTMLElement>('#app')!
 const $=<T extends HTMLElement=HTMLElement>(s:string)=>document.querySelector<T>(s)
@@ -400,7 +400,14 @@ function bot(){
     },230)
   }
   worker.onmessage=(event:MessageEvent<Action|undefined>)=>commit(event.data)
-  worker.onerror=()=>commit(legal(current.game)[0])
+  worker.onerror=()=>{
+    worker.terminate()
+    if(botAgent!==worker||mode!=='bot'||m!==current)return
+    botAgent=null
+    void import('./bot.ts').then(({chooseMove})=>{
+      if(mode==='bot'&&m===current)commit(chooseMove(current.game,difficulty))
+    }).catch(()=>tell('The bot could not choose a move. Try restarting the game.'))
+  }
   worker.postMessage({game:current.game,difficulty})
 }
 function botSetup(){

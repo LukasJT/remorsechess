@@ -13,7 +13,17 @@ export const opposite = (side: Side): Side => side === 'white' ? 'black' : 'whit
 export const file = (square: number) => square % 8
 export const rank = (square: number) => Math.floor(square / 8)
 export const name = (square: number) => 'abcdefgh'[file(square)] + (rank(square) + 1)
-export const at = (game: Game, square: number) => game.pieces.find(p => p.square === square)
+const boards=new WeakMap<Piece[],(Piece|undefined)[]>()
+export function squares(game:Game):readonly (Piece|undefined)[]{
+  let board=boards.get(game.pieces)
+  if(!board){
+    board=new Array<Piece|undefined>(64)
+    for(const p of game.pieces)board[p.square]=p
+    boards.set(game.pieces,board)
+  }
+  return board
+}
+export const at=(game:Game,square:number)=>squares(game)[square]
 export const moodNames: Record<Mood, string> = { normal:'Unaffected', devastated:'Devastated', guilty:'Guilt-ridden', psychopath:'Psychopath', bloodlust:'Bloodlust' }
 const canCapture = (p: Piece) => p.mood !== 'devastated' && p.mood !== 'guilty'
 const promotions: Kind[] = ['q', 'r', 'b', 'n']
@@ -116,25 +126,60 @@ function preview(game: Game, action: Action): { next: Game; actor?: Piece; taken
   if (!inCheck(next, game.side)) return { next, actor: p, taken }
 }
 
-export function legal(game: Game, only?: number): Action[] {
-  if (game.result) return []
-  const actions: Action[] = []
-  if (game.bonus !== null && only === undefined) actions.push({ type: 'end' })
-  for (const p of game.pieces) {
-    if (p.side !== game.side || (only !== undefined && p.square !== only) || (game.bonus !== null && game.bonus !== p.id)) continue
-    for (let to = 0; to < 64; to++) {
-      const kinds = p.kind === 'p' && [0,7].includes(rank(to)) ? promotions : [undefined]
-      for (const promotion of kinds) {
-        const action: Action = promotion ? { type:'move', from:p.square, to, promotion } : { type:'move', from:p.square, to }
-        if (preview(game, action)) actions.push(action)
+const directions={
+  n:[[-1,-2],[1,-2],[-2,-1],[2,-1],[-2,1],[2,1],[-1,2],[1,2]],
+  r:[[-1,0],[1,0],[0,-1],[0,1]],
+  b:[[-1,-1],[-1,1],[1,-1],[1,1]],
+}
+const allDirections=[...directions.r,...directions.b]
+function* moveTargets(game:Game,p:Piece):Generator<number>{
+  const x=file(p.square),y=rank(p.square)
+  const valid=(f:number,r:number)=>f>=0&&f<8&&r>=0&&r<8
+  const single=p.kind==='n'||p.kind==='k'
+  if(p.kind==='p'){
+    const forward=p.side==='white'?1:-1
+    for(const step of [1,2])if(valid(x,y+step*forward))yield (y+step*forward)*8+x
+    for(const dx of [-1,1])if(valid(x+dx,y+forward))yield (y+forward)*8+x+dx
+    return
+  }
+  const lines=p.kind==='q'||p.kind==='k'?allDirections:directions[p.kind]
+  for(const [dx,dy] of lines){
+    for(let step=1;valid(x+dx*step,y+dy*step);step++){
+      const target=(y+dy*step)*8+x+dx*step
+      yield target
+      if(single||at(game,target))break
+    }
+  }
+  if(p.kind==='k'&&!p.moved&&x===4){yield p.square-2;yield p.square+2}
+}
+function* legalActions(game:Game,only?:number):Generator<Action>{
+  if(game.result)return
+  if(game.bonus!==null&&only===undefined)yield {type:'end'}
+  for(const p of game.pieces){
+    if(p.side!==game.side||p.mood==='devastated'||(only!==undefined&&p.square!==only)||(game.bonus!==null&&game.bonus!==p.id))continue
+    for(const to of moveTargets(game,p)){
+      const kinds=p.kind==='p'&&(rank(to)===0||rank(to)===7)?promotions:[undefined]
+      for(const promotion of kinds){
+        const action:Action=promotion?{type:'move',from:p.square,to,promotion}:{type:'move',from:p.square,to}
+        if(preview(game,action))yield action
       }
-      if (p.kind === 'b') {
-        const action: Action = { type:'absolve', from:p.square, to }
-        if (preview(game, action)) actions.push(action)
+    }
+    if(p.kind==='b'&&game.bonus===null&&p.mood!=='bloodlust'){
+      for(const target of game.pieces){
+        if(target.side!==p.side||(target.mood!=='devastated'&&target.mood!=='guilty'))continue
+        const action:Action={type:'absolve',from:p.square,to:target.square}
+        if(preview(game,action))yield action
       }
     }
   }
-  return actions
+}
+export const legal=(game:Game,only?:number):Action[]=>[...legalActions(game,only)]
+const hasLegal=(game:Game,only?:number)=>!legalActions(game,only).next().done
+
+export function captureTarget(game:Game,action:Action):Piece|undefined{
+  if(action.type!=='move')return
+  const actor=at(game,action.from)
+  if(actor)return victim(game,actor,action.to)
 }
 
 function key(game: Game): string {
@@ -203,7 +248,7 @@ export function play(game: Game, action: Action, die: () => number = rollDie): {
       }
       if (game.bonus === null && (moved.mood === 'psychopath' || moved.mood === 'bloodlust')) {
         next.bonus = moved.id
-        if (legal(next, moved.square).length) return { game:next, event }
+        if (hasLegal(next, moved.square)) return { game:next, event }
       }
     }
   }
@@ -224,7 +269,7 @@ export function play(game: Game, action: Action, die: () => number = rollDie): {
   next.irreversible = false
   if (!next.result) {
     const check = inCheck(next,next.side)
-    if (!legal(next).length) next.result = check ? { winner:game.side,reason:'Checkmate' } : { winner:null,reason:'Stalemate' }
+    if (!hasLegal(next)) next.result = check ? { winner:game.side,reason:'Checkmate' } : { winner:null,reason:'Stalemate' }
     else if (next.pieces.length === 2 && next.pieces.every(p => p.kind === 'k' && p.mood !== 'devastated')) next.result = { winner:null,reason:'Bare kings' }
     else {
       const position = key(next)
