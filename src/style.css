@@ -91,3 +91,40 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
   .victory-celebrate .result-emblem,.victory-celebrate h2,.victory-burst i{animation:none}
   .victory-burst{display:none}
 }
+.hero-rules{display:inline-block;font-weight:700;margin-right:18px}
+.home-guide{grid-column:1/-1;border:1px solid var(--line);background:#261e25;scroll-margin-top:18px}
+.guide-header{display:flex;gap:22px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding:23px 25px;background:#30232b}
+.guide-header h2{color:var(--gold);font-size:clamp(1.55rem,4vw,2.15rem);line-height:1.12;margin:0 0 .55rem}
+.guide-header p,.guide-strategy p{max-width:64ch;margin-bottom:0;font-size:1rem}
+.guide-header button{flex:0 0 auto}
+.home-guide h3{margin:0 0 .55rem;color:#ffd99d;font-size:1.22rem;line-height:1.25}
+.guide-dice{padding:20px 25px;border-bottom:1px solid var(--line)}
+.guide-dice dl{margin:0;display:grid;grid-template-columns:1fr 1fr;gap:0 24px}
+.guide-roll{display:grid;grid-template-columns:3.8rem minmax(0,1fr);gap:12px;border-bottom:1px solid #493943;padding:11px 0}
+.guide-roll:nth-last-child(-n+2){border-bottom:0}
+.guide-roll>span{font:1.8rem/1.1 system-ui;color:var(--gold);white-space:nowrap}
+.guide-roll.devastated>span,.guide-roll.psychopath>span{color:var(--red)}
+.guide-roll.guilty>span{color:#e4b4f0}
+.guide-roll dt{margin:0;color:var(--paper);line-height:1.45}
+.guide-roll dd{color:#dac5cf;line-height:1.55}
+.guide-strategy{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:22px 25px}
+.guide-strategy p+p{margin-top:.55rem}
+.guide-heal{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) 160px;align-items:center;gap:8px 24px;border-bottom:1px solid var(--line);padding-bottom:17px}
+.guide-heal ol{margin:0;padding-left:1.3rem;max-width:64ch;line-height:1.55}
+.guide-heal li+li{margin-top:.33rem}
+.guide-heal>p{grid-column:1/-1;margin-top:5px}
+.guide-example{margin:0;text-align:center;color:var(--muted);font-size:.83rem;line-height:1.3}
+.guide-board{display:grid;grid-template-columns:repeat(3,1fr);width:105px;margin:0 auto 7px;border:2px solid #795b57;color:#fbeecc}
+.guide-board>span{display:grid;place-items:center;aspect-ratio:1;background:#a46d55;font:1.45rem/1 "Segoe UI Symbol",serif;text-shadow:1px 1px #372432}
+.guide-board>span:nth-child(even){background:#e0b780}
+.guide-board i{width:66%;aspect-ratio:1;border-radius:50%;border:2px solid #a6f7a2;box-shadow:0 0 0 1px #153526}
+.guide-play{margin:0;border-top:1px solid var(--line);padding:14px 25px;color:#e6c9ac;background:#30232b}
+@media(max-width:620px){
+  .guide-header{align-items:flex-start;flex-direction:column;gap:12px}
+  .guide-header,.guide-dice,.guide-strategy,.guide-play{padding-left:15px;padding-right:15px}
+  .guide-dice dl,.guide-strategy{grid-template-columns:1fr}
+  .guide-roll:nth-last-child(2){border-bottom:1px solid #493943}
+  .guide-heal{grid-template-columns:1fr;gap:13px}
+  .guide-example{display:flex;align-items:center;text-align:left;gap:12px}
+  .guide-board{width:88px;flex:none;margin:0}
+}

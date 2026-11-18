@@ -1,4 +1,5 @@
 import './style.css'
+import {homeGuide} from './home-guide.ts'
 import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,type Action,type Side,type Kind,type Piece} from './rules.ts'
 import {command,makeMatch,expire,remaining,presets,type Match,type Control,type Command} from './match.ts'
 import {pool,deviation,type Rating} from './rating.ts'
@@ -132,7 +133,7 @@ function clocks(indices:number[]){
   return indices.map(i=>'<button data-control="'+i+'" aria-pressed="'+(!flexible&&choice===i)+'" '+(queue?'disabled':'')+'><b>'+clockLabel(presets[i])+'</b><small>'+(presets[i].seconds?pool(presets[i].seconds,presets[i].increment):'Untimed')+'</small></button>').join('')
 }
 function home(){
-  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="queue-preference"><button data-do="quick-clock" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button></div><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked (separate queue)</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+button(queue?'cancel':'queue',queue?'Cancel search':flexible?'Quick match':'Find online match','primary full')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section></main>'
+  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+'<a class="link hero-rules" href="#how-to-play">How to play ↓</a>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="queue-preference"><button data-do="quick-clock" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button></div><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked (separate queue)</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+button(queue?'cancel':'queue',queue?'Cancel search':flexible?'Quick match':'Find online match','primary full')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section>'+homeGuide+'</main>'
 }
 let reviewCache:{source:Match;index:number;view:Match}|null=null
 function view(){
@@ -282,9 +283,9 @@ function closeRoom(){
   botAgent?.terminate();botAgent=null;clearTimeout(lessonTimer)
   if(socket){socket.onclose=null;socket.close();socket=null}
 }
-function goHome(){
+function goHome(keepGuide=false){
   closeRoom();void cancel();mode='home';m=null;status='';review=null
-  history.replaceState({},'','/');render()
+  history.replaceState({},'',keepGuide?'/#how-to-play':'/');render()
 }
 function local(kind:string,control=presets[choice]){
   closeRoom();void cancel();history.replaceState({},'','/')
@@ -858,7 +859,11 @@ root.addEventListener('dragend',()=>{drag=null})
 const route=()=>{
   const gameId=new URLSearchParams(location.search).get('game')
   if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
-  else goHome()
+  else if(mode!=='home'||!root.hasChildNodes()){
+    const guide=location.hash==='#how-to-play'
+    goHome(guide)
+    if(guide)requestAnimationFrame(()=>$('#how-to-play')?.scrollIntoView())
+  }
 }
 window.addEventListener('popstate',route)
 const link=new URLSearchParams(location.hash.slice(1)).get('email')
