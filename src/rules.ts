@@ -5,7 +5,9 @@ export type Piece = { id: number; side: Side; kind: Kind; square: number; mood: 
 export type Action = { type: 'move'; from: number; to: number; promotion?: Kind } | { type: 'absolve'; from: number; to: number } | { type: 'end' }
 export type Result = { winner: Side | null; reason: string }
 export type Ep = { pawn: number; square: number; target: number }
-export type Game = { rulesVersion: 1; pieces: Piece[]; side: Side; bonus: number | null; turn: number; ep: Ep | null; nextEp: Ep | null; quiet: number; irreversible: boolean; seen: Record<string, number>; result: Result | null }
+export const CURRENT_RULES = 2
+export type RulesVersion = 1 | typeof CURRENT_RULES
+export type Game = { rulesVersion: RulesVersion; pieces: Piece[]; side: Side; bonus: number | null; turn: number; ep: Ep | null; nextEp: Ep | null; quiet: number; irreversible: boolean; seen: Record<string, number>; result: Result | null }
 export type Event = { turn: number; side: Side; action: Action; text: string; roll?: number; mood?: Mood; capture?: Piece; captureState?: {mood:Mood; originalRoll:number; kills:number}; vanished: Piece[] }
 export const opposite = (side: Side): Side => side === 'white' ? 'black' : 'white'
 export const file = (square: number) => square % 8
@@ -16,8 +18,8 @@ export const moodNames: Record<Mood, string> = { normal:'Unaffected', devastated
 const canCapture = (p: Piece) => p.mood !== 'devastated' && p.mood !== 'guilty'
 const promotions: Kind[] = ['q', 'r', 'b', 'n']
 
-export function initial(): Game {
-  const game: Game = { rulesVersion: 1, pieces: [], side: 'white', bonus: null, turn: 1, ep: null, nextEp: null, quiet: 0, irreversible: false, seen: {}, result: null }
+export function initial(rulesVersion: RulesVersion = CURRENT_RULES): Game {
+  const game: Game = { rulesVersion, pieces: [], side: 'white', bonus: null, turn: 1, ep: null, nextEp: null, quiet: 0, irreversible: false, seen: {}, result: null }
   const back: Kind[] = ['r','n','b','q','k','b','n','r']
   for (const side of ['white', 'black'] as const) {
     for (let column = 0; column < 8; column++) {
@@ -101,7 +103,8 @@ function preview(game: Game, action: Action): { next: Game; actor?: Piece; taken
       !['guilty','devastated'].includes(target.mood) || Math.abs(rank(p.square)-rank(target.square)) > 1 || Math.abs(file(p.square)-file(target.square)) > 1) return
   } else {
     taken = victim(game, p, action.to)
-    if (taken?.kind === 'k' || (taken && (!canCapture(p) || (taken.side === p.side && p.mood !== 'bloodlust'))) || (!taken && p.mood === 'bloodlust')) return
+    if (taken?.kind === 'k' && (game.rulesVersion === 1 || game.bonus !== p.id || taken.side === p.side)) return
+    if ((taken && (!canCapture(p) || (taken.side === p.side && p.mood !== 'bloodlust'))) || (!taken && p.mood === 'bloodlust')) return
     if (!taken && p.kind === 'k' && Math.abs(action.from - action.to) === 2) {
       rook = castle(game, p, action.to)
       if (!rook) return
@@ -192,6 +195,12 @@ export function play(game: Game, action: Action, die: () => number = rollDie): {
       }
       event.captureState = {mood:moved.mood,originalRoll:moved.roll,kills:moved.kills}
       next.pieces = next.pieces.map(p => p.id === moved.id ? moved : p)
+      if (taken.kind === 'k') {
+        next.bonus = null
+        next.result = { winner:game.side, reason:'King captured on bonus move' }
+        event.text += '#'
+        return { game:next, event }
+      }
       if (game.bonus === null && (moved.mood === 'psychopath' || moved.mood === 'bloodlust')) {
         next.bonus = moved.id
         if (legal(next, moved.square).length) return { game:next, event }

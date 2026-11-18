@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { command, expire, makeMatch, remaining, type Command, type Control, type Entry, type Match } from './match.ts'
 import { defaultRating, deviation, pool, updateRating, type Rating } from './rating.ts'
-import type { Side } from './rules.ts'
+import { CURRENT_RULES,type Side } from './rules.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
 import { banner } from './ads.ts'
@@ -333,7 +333,7 @@ export default {
     }
     if(req.method==='POST' && req.headers.get('origin')!==url.origin) return problem('Invalid origin',403)
     if(req.headers.get('upgrade') && req.headers.get('origin')!==url.origin) return problem('Invalid origin',403)
-    if(endpoint==='health') return json({ok:true,rulesVersion:1})
+    if(endpoint==='health') return json({ok:true,rulesVersion:CURRENT_RULES})
     const accountId=cookie(req,'remorse_account')
     const guestId=cookie(req,'remorse_guest')
     const guestValid=guestId && /^[a-f0-9]{32}$/.test(guestId)
