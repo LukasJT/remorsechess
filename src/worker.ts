@@ -1,17 +1,18 @@
 import { DurableObject } from 'cloudflare:workers'
-import { command, expire, makeMatch, remaining, type Command, type Control, type Entry, type Match } from './match.ts'
+import { command, compatibleClock, expire, makeMatch, remaining, type Command, type Control, type Entry, type Match, type SearchClock } from './match.ts'
 import { defaultRating, deviation, pool, updateRating, type Rating } from './rating.ts'
 import { CURRENT_RULES,type Side } from './rules.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
 import { banner } from './ads.ts'
+import { digest, normalizeEmail, sendSignIn, type EmailRequest } from './email.ts'
 
 type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
-interface Env { GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string }
+interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string }
 type Identity = { id:string; name:string; account:boolean }
 type Seats = Partial<Record<Side,Identity>>
 type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string }
-type Ticket = { owner:Identity; id:string; expires:number }
+type Ticket = { owner:Identity; id:string; expires:number; clock:SearchClock; created:number }
 type PublicGame = { id:string; white:string; black:string; control:Control; rated:boolean }
 type Profile = { user:Identity; ratings:Record<string,Rating>; history:{id:string; result:string; pool:string; delta?:number}[] }
 type Final = { room:RoomInfo; reason:string; winner:Side|null }
@@ -40,6 +41,11 @@ function parseAction(raw:unknown):Command|null {
 }
 
 export class Room extends DurableObject<Env> {
+  async isOpenFor(playerID:string){
+    const info=await this.ctx.storage.get<RoomInfo>('room')
+    const match=await this.ctx.storage.get<Match>('match')
+    return Boolean(info&&match&&!expire(match,Date.now()).game.result&&Object.values(info.seats).some(p=>p.id===playerID))
+  }
   async initialize(info:RoomInfo) {
     await this.ctx.blockConcurrencyWhile(async()=>{
       if(await this.ctx.storage.get('room')) return
@@ -214,6 +220,58 @@ export class Lobby extends DurableObject<Env> {
       return true
     })
   }
+  async reserveEmail(request:EmailRequest){
+    return this.ctx.storage.transaction(async txn=>{
+      const now=Date.now()
+      const mailbox='mailbox/'+request.mailbox
+      const previous=await txn.get<{hash:string;sent:number}>(mailbox)
+      if(previous&&now-previous.sent<60_000)return 'cooldown'
+      const day=new Date(now).toISOString().slice(0,10)
+      const count=await txn.get<{day:string;count:number}>('email-quota')
+      const sent=count?.day===day?count.count:0
+      if(sent>=90)return 'quota'
+      if(previous)await txn.delete('email-link/'+previous.hash)
+      await txn.put(mailbox,{hash:request.hash,sent:now})
+      await txn.put('email-quota',{day,count:sent+1})
+      await txn.put('email-link/'+request.hash,request)
+      return 'ready'
+    })
+  }
+  async discardEmail(hash:string,mailbox:string){
+    await this.ctx.storage.transaction(async txn=>{
+      if((await txn.get<{hash:string}>('mailbox/'+mailbox))?.hash===hash)await txn.delete('mailbox/'+mailbox)
+      await txn.delete('email-link/'+hash)
+    })
+  }
+  async redeemEmail(hash:string,handle:string|null,owner:Identity|undefined,sessionID:string){
+    return this.ctx.storage.transaction(async txn=>{
+      const key='email-link/'+hash
+      const link=await txn.get<EmailRequest>(key)
+      if(!link||link.expires<Date.now()){if(link)await txn.delete(key);return 'expired'}
+      if(link.owner&&link.owner!==owner?.id)return 'original-account'
+      const index='email-account/'+link.mailbox
+      let user=await txn.get<Identity>(index)
+      if(link.owner&&owner){
+        if(user&&user.id!==owner.id)return 'linked'
+        user=owner
+      } else if(owner&&owner.id!==user?.id)return 'sign-out'
+      if(!user){
+        if(!handle)return 'name'
+        const handleKey='handle/'+handle.toLowerCase()
+        if(await txn.get(handleKey))return 'taken'
+        user={id:'email:'+token(),name:handle,account:true}
+        await txn.put(handleKey,user.id)
+      }
+      await txn.put(index,user)
+      await txn.put('email-owner/'+user.id,true)
+      await txn.put('session/'+sessionID,{user,expires:Date.now()+7*86400_000})
+      await txn.delete(key)
+      return 'ok'
+    })
+  }
+  async hasEmail(user:string){
+    return Boolean(await this.ctx.storage.get('email-owner/'+user))
+  }
   async logout(id:string){ await this.ctx.storage.delete('session/'+id) }
   async profile(user:Identity):Promise<Profile>{
     return await this.ctx.storage.get<Profile>('profile/'+user.id) ?? {user,ratings:{},history:[]}
@@ -232,39 +290,50 @@ export class Lobby extends DurableObject<Env> {
     const records=[...(await this.ctx.storage.list<Profile>({prefix:'profile/',limit:1000})).values()]
     return Object.fromEntries(['Bullet','Blitz','Rapid'].map(group=>[group,records.filter(p=>p.ratings[group] && deviation(p.ratings[group],Date.now())<=110).sort((a,b)=>b.ratings[group].rating-a.ratings[group].rating).slice(0,20).map(p=>({name:p.user.name,rating:Math.round(p.ratings[group].rating)}))]))
   }
-  async search(player:Identity,control:Control,rated:boolean,cancel=false){
+  async search(player:Identity,clock:SearchClock,rated:boolean,cancel=false){
     return this.ctx.blockConcurrencyWhile(async()=>{
-      const active=await this.ctx.storage.get<string>('active/'+player.id)
-      if(active) return {id:active}
-      const key='queue/'+(rated?'rated/':'casual/')+control.seconds+'/'+control.increment
+      const activeKey='active/'+player.id
+      const active=await this.ctx.storage.get<string>(activeKey)
+      if(active){
+        if(await room(this.env,active).isOpenFor(player.id))return {id:active}
+        await this.ctx.storage.delete(activeKey)
+      }
       const now=Date.now()
-      const queue=(await this.ctx.storage.get<Ticket[]>(key) ?? []).filter(t=>t.expires>now)
-      const myQueue='ticket/'+player.id
-      if(cancel) {
-        await this.ctx.storage.put(key,queue.filter(t=>t.owner.id!==player.id))
-        if(await this.ctx.storage.get(myQueue)===key) await this.ctx.storage.delete(myQueue)
+      const directory='search/'+(rated?'rated/':'casual/')
+      const myKey=directory+player.id
+      if(cancel){
+        await this.ctx.storage.delete(myKey)
         return {}
       }
-      const eligible:Ticket[]=[]
-      for(const ticket of queue) {
-        if(ticket.owner.id===player.id || (await this.ctx.storage.get('ticket/'+ticket.owner.id)===key && !(await this.ctx.storage.get('active/'+ticket.owner.id)))) eligible.push(ticket)
+      await this.ctx.storage.delete('search/'+(rated?'casual/':'rated/')+player.id)
+      const entries=await this.ctx.storage.list<Ticket>({prefix:directory})
+      const stale:string[]=[]
+      const eligible:{key:string;ticket:Ticket;control:Control}[]=[]
+      for(const [key,ticket] of entries){
+        if(ticket.expires<=now){stale.push(key);continue}
+        if(key===myKey)continue
+        const control=compatibleClock(clock,ticket.clock)
+        if(control)eligible.push({key,ticket,control})
       }
-      const mine=eligible.find(t=>t.owner.id===player.id)
-      let other:Ticket|undefined
-      for(const ticket of eligible){
-        if(ticket.owner.id===player.id)continue
-        if(await this.ctx.storage.get('block/'+player.id+'/'+ticket.owner.id) || await this.ctx.storage.get('block/'+ticket.owner.id+'/'+player.id))continue
-        other=ticket
-        break
+      if(stale.length)for(let i=0;i<stale.length;i+=128)await this.ctx.storage.delete(stale.slice(i,i+128))
+      eligible.sort((a,b)=>a.ticket.created-b.ticket.created)
+      let pair:typeof eligible[number]|undefined
+      for(const entry of eligible){
+        const opponent=entry.ticket.owner.id
+        const records=await this.ctx.storage.get([
+          'active/'+opponent,'block/'+player.id+'/'+opponent,'block/'+opponent+'/'+player.id,
+        ])
+        if(records.size===0){pair=entry;break}
       }
-      if(!other){
-        if(!mine) eligible.push({owner:player,id:token(),expires:now+45_000})
-        else mine.expires=now+45_000
-        await this.ctx.storage.put({[key]:eligible,[myQueue]:key})
-        return {queued:true}
+      if(!pair){
+        const mine=entries.get(myKey)
+        const same=mine&&mine.expires>now&&JSON.stringify(mine.clock)===JSON.stringify(clock)
+        await this.ctx.storage.put<Ticket>(myKey,{owner:player,id:same?mine.id:token(),clock,created:same?mine.created:now,expires:now+90_000})
+        return {queued:true,rated,flexible:clock==='any'}
       }
-      const opponent=other
+      const {ticket:opponent,control}=pair
       const id=opponent.id
+      const opponentKey=pair.key
       const seats=Math.random()<0.5 ? {white:opponent.owner,black:player} : {white:player,black:opponent.owner}
       const group=pool(control.seconds,control.increment)
       const ratings:RoomInfo['ratings']=rated?{
@@ -273,10 +342,9 @@ export class Lobby extends DurableObject<Env> {
       }:undefined
       await room(this.env,id).initialize({id,seats,rated,ratings,control,created:now,open:false})
       await this.ctx.storage.transaction(async txn=>{
-        await txn.put(key,eligible.filter(t=>t.owner.id!==player.id && t.owner.id!==opponent.owner.id))
-        await txn.delete([myQueue,'ticket/'+opponent.owner.id])
+        await txn.delete([myKey,opponentKey])
         await txn.put<PublicGame>('watch/'+id,{id,white:seats.white.name,black:seats.black.name,control,rated})
-        await txn.put('active/'+player.id,id)
+        await txn.put(activeKey,id)
         await txn.put('active/'+opponent.owner.id,id)
       })
       return {id}
@@ -419,8 +487,55 @@ export default {
       }
       return problem('Not found',404)
     }
+    const emailReady=Boolean(env.RESEND_API_KEY&&url.hostname==='remorsechess.com')
+    if(endpoint.startsWith('auth/email/')&&req.method==='POST'){
+      if(!emailReady||!guestValid)return problem('Email sign-in is unavailable here',503)
+      if(Number(req.headers.get('content-length')??0)>4096)return problem('Request is too large',413)
+      const input=await req.json<Record<string,unknown>>().catch(()=>null)
+      if(!input||typeof input!=='object')return problem('Invalid request')
+      const store=lobby(env)
+      if(endpoint==='auth/email/start'){
+        const email=normalizeEmail(input.email)
+        if(!email)return problem('Enter a valid email address.')
+        const linking=input.link===true
+        if(linking!==Boolean(profile))return problem('Sign in to link an email, or sign out to use a different account.',409)
+        if(ip&&!(await env.EMAIL_LIMIT.limit({key:ip})).success)return problem('Too many sign-in emails. Wait a minute and try again.',429)
+        const code=token()+token()
+        const hash=await digest(code)
+        const mailbox=await digest(email)
+        const reserved=await store.reserveEmail({hash,mailbox,owner:profile?.id,expires:Date.now()+900_000})
+        if(reserved==='cooldown')return problem('Wait one minute before requesting a new link.',429)
+        if(reserved==='quota')return problem('Email sign-in is at its daily limit. Try again tomorrow.',429)
+        const target=url.origin+'/#email='+code
+        const sent=await sendSignIn(env.RESEND_API_KEY!,email,target,hash,linking).catch(()=>null)
+        if(!sent?.ok){
+          console.warn('Sign-in email could not be accepted',{status:sent?.status??0})
+          await store.discardEmail(hash,mailbox)
+          return problem('We couldn’t send the email. Try again in a moment.',502)
+        }
+        return json({ok:true})
+      }
+      if(endpoint==='auth/email/finish'){
+        const code=input.code
+        if(typeof code!=='string'||!/^([a-f0-9]{64})$/.test(code))return problem('This sign-in link is invalid.',400)
+        const handle=accountName(input.name)
+        if(input.name!==undefined&&!handle)return problem('Use 3–20 letters, numbers, underscores or hyphens.')
+        const sessionID=token()
+        const outcome=await store.redeemEmail(await digest(code),handle,profile,sessionID)
+        if(outcome==='name')return json({needsName:true})
+        if(outcome==='taken')return problem('That player name is already in use.',409)
+        if(outcome==='original-account')return problem('Open the verification link in the browser where you’re signed in to the original account.',403)
+        if(outcome==='linked')return problem('This email is attached to another account.',409)
+        if(outcome==='sign-out')return problem('Sign out of the current account before using this link.',409)
+        if(outcome!=='ok')return problem('This sign-in link expired or was already used.',403)
+        const response=json({ok:true})
+        response.headers.append('set-cookie',setCookie(req,'remorse_account',sessionID,86400*7))
+        return response
+      }
+      return problem('Not found',404)
+    }
     if(endpoint==='session'){
-      const resp=json({name:player.name,account:player.account,signIn,passkeys})
+      const resp=json({name:player.name,account:player.account,signIn,passkeys,emailReady,emailLinked:profile?await lobby(env).hasEmail(profile.id):false})
       if(!guestValid) resp.headers.append('set-cookie',setCookie(req,'remorse_guest',guest,86400*30))
       return resp
     }
@@ -438,14 +553,14 @@ export default {
     if(endpoint==='watch' && req.method==='GET') return json(await lobby(env).watch())
     if(endpoint==='leaders' && req.method==='GET') return json(await lobby(env).leaders())
     if((endpoint==='rooms' || endpoint==='queue') && req.method==='POST'){
-      const body=await req.json<Partial<Control>&{rated?:boolean;cancel?:boolean}>().catch(()=>null)
+      const body=await req.json<Partial<Control>&{rated?:boolean;cancel?:boolean;flexible?:boolean}>().catch(()=>null)
       const control=body&&parseControl(body)
       if(!control) return problem('Choose a valid time control')
       const rated=body?.rated===true
       if(endpoint==='queue'){
-        if(!control.seconds) return problem('Matchmaking requires a timed game')
+        if(!control.seconds && body?.flexible!==true) return problem('Matchmaking requires a timed game')
         if(rated && !player.account) return problem('Sign in for ranked play',401)
-        return json(await lobby(env).search(player,control,rated,body?.cancel===true))
+        return json(await lobby(env).search(player,body?.flexible===true?'any':control,rated,body?.cancel===true))
       }
       const id=token()
       await room(env,id).initialize({id,control,seats:{white:player},rated:false,created:Date.now(),open:true})

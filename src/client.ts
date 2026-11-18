@@ -42,7 +42,7 @@ const rules='<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · De
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:false,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
 type Snapshot={room:{white?:string;black?:string;open:boolean;rated:boolean;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
-type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean}
+type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean}
 let session:Session|null=null
 let mode='home', m:Match|null=null, selected:number|null=null, absolve=false, flipped=false, tab='Moves', status=''
 let id='', info:Snapshot['room']|null=null, seat:Side|null=null, offset=0, socket:WebSocket|null=null, busy=false
@@ -50,7 +50,7 @@ let difficulty:Difficulty='tactical'
 let human:Side='white'
 let botAgent:Worker|null=null
 let lessonTimer=0
-let choice=3, queue:({rated:boolean}&Control)|null=null, queueTimer=0, generation=0, rated=false
+let choice=3, flexible=true, queue:({rated:boolean;flexible:boolean}&Control)|null=null, queueTimer=0, generation=0, rated=false
 let names={white:'White',black:'Black'}
 let past:Match[]=[], future:Match[]=[], review:number|null=null, seed=initial(), lesson=0, promotion:Action[]=[]
 let audio:AudioContext|undefined, soundVersion=-1, drag:number|null=null, focus=4
@@ -100,10 +100,10 @@ const button=(action:string,text:string,cls='')=>'<button class="'+cls+'" data-d
 const today=()=>Date.now()+(mode==='online'?offset:0)
 const clockLabel=(c:Control)=>c.seconds?(c.seconds%60===0?c.seconds/60:Math.floor(c.seconds/60)+':'+String(c.seconds%60).padStart(2,'0'))+'+'+c.increment:'∞'
 function clocks(indices:number[]){
-  return indices.map(i=>'<button data-control="'+i+'" aria-pressed="'+(choice===i)+'"><b>'+clockLabel(presets[i])+'</b><small>'+(presets[i].seconds?pool(presets[i].seconds,presets[i].increment):'Untimed')+'</small></button>').join('')
+  return indices.map(i=>'<button data-control="'+i+'" aria-pressed="'+(!flexible&&choice===i)+'" '+(queue?'disabled':'')+'><b>'+clockLabel(presets[i])+'</b><small>'+(presets[i].seconds?pool(presets[i].seconds,presets[i].increment):'Untimed')+'</small></button>').join('')
 }
 function home(){
-  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+'> Rated game</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+button(queue?'cancel':'queue',queue?'Cancel search':'Find online match','primary full')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section></main>'
+  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="queue-preference"><button data-do="quick-clock" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button></div><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked (separate queue)</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+button(queue?'cancel':'queue',queue?'Cancel search':flexible?'Quick match':'Find online match','primary full')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section></main>'
 }
 let reviewCache:{source:Match;index:number;view:Match}|null=null
 function view(){
@@ -260,19 +260,33 @@ async function online(room:string){
 setInterval(()=>{if(id)void sync()},2400)
 async function search(){
   await login()
-  if(queue)return
+  if(queue||mode!=='home')return
   const c=presets[choice]
-  if(!c.seconds){tell('Choose a timed control for matchmaking.');return}
-  const ticket={...c,rated}
+  if(!flexible&&!c.seconds){tell('Choose a timed control for matchmaking.');return}
+  const ticket={...c,rated,flexible}
   const current=++generation
-  queue=ticket;status='Looking for an opponent…';render()
+  queue=ticket
+  const label=(ticket.rated?'Ranked':'Casual')+' · '+(ticket.flexible?'Any popular clock':clockLabel(ticket))
+  const started=Date.now()
+  let failures=0
+  status='Searching '+label+'…'
+  render()
   const poll=async()=>{
     try{
       const found=await api<{id?:string}>('queue',ticket)
       if(current!==generation)return
       if(found.id){queue=null;await online(found.id)}
-      else queueTimer=window.setTimeout(poll,1500)
-    }catch(e){if(current===generation){queue=null;status=(e as Error).message;render()}}
+      else {
+        failures=0
+        const seconds=Math.floor((Date.now()-started)/1000)
+        tell('Searching '+label+' · '+seconds+'s'+(seconds>=20&&!ticket.flexible?' · Try Any popular clock for more opponents.':''))
+        queueTimer=window.setTimeout(poll,2100)
+      }
+    }catch(e){
+      if(current!==generation)return
+      if(++failures<=3){tell('Reconnecting to '+label+'…');queueTimer=window.setTimeout(poll,3000);return}
+      queue=null;status=(e as Error).message;render()
+    }
   }
   await poll()
 }
@@ -395,9 +409,55 @@ function botSetup(){
     '</fieldset><label>Play as <select name="color"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select></label> <button class="primary">Start game</button></form>')
 }
 function signIn(){
-  modal('<h2>Ranked account</h2><p>Use a passkey from your device or password manager. Keep it synced so you can sign in again.</p>'+
+  modal('<h2>Sign in or create an account</h2>'+
+    (session?.emailReady?emailForm(false)+'<h3>Use a passkey instead</h3>':'<p>Use a passkey from your device or password manager. Keep it synced so you can sign in again.</p>')+
     '<form id="passkey-register"><label>Player name <input name="handle" autocomplete="nickname" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_\\-]{3,20}"></label> <button class="primary">Create account</button></form>'+
     button('passkey-login','Sign in with a passkey')+'<p class="auth-status" role="status" id="auth-status"></p>')
+}
+let emailCode=''
+function emailForm(link:boolean){
+  return '<form id="email-start" data-link="'+link+'"><label>Email address <input type="email" name="email" autocomplete="email" maxlength="254" required></label> <button class="primary">Email me a sign-in link</button><p id="email-status" role="status"></p></form>'
+}
+function linkEmail(){
+  modal('<h2>Add email sign-in</h2><p>Use your email to sign back into this account and keep your rating. Open the verification link in this browser.</p>'+emailForm(true))
+}
+async function sendEmailLink(form:HTMLFormElement){
+  const statusNode=form.querySelector<HTMLElement>('#email-status')!
+  const submit=form.querySelector<HTMLButtonElement>('button')!
+  if(submit.disabled)return
+  submit.disabled=true
+  statusNode.textContent='Sending your link…'
+  try{
+    const email=String(new FormData(form).get('email')??'')
+    await api('auth/email/start',{email,link:form.dataset.link==='true'})
+    statusNode.textContent='Check '+email+' for a link. It expires in 15 minutes.'
+  }catch(e){statusNode.textContent=e instanceof Error?e.message:'Couldn’t send the link.'}
+  finally{submit.disabled=false}
+}
+function emailRedeem(){
+  modal('<h2>Continue with email</h2><p>Continue to sign in or choose a player name for your new account.</p>'+button('email-confirm','Continue','primary')+'<p id="email-status" role="status"></p>')
+}
+async function finishEmail(name?:string){
+  const statusNode=$('#email-status')
+  if(!statusNode||statusNode.dataset.busy)return
+  statusNode.dataset.busy='1'
+  statusNode.textContent='Checking your link…'
+  try{
+    await login()
+    const result=await api<{ok?:boolean;needsName?:boolean}>('auth/email/finish',{code:emailCode,name})
+    if(result.needsName){
+      modal('<h2>Choose a player name</h2><form id="email-finish"><label>Player name <input name="handle" autocomplete="nickname" required minlength="3" maxlength="20"></label> <button class="primary">Create account</button><p id="email-status" role="status"></p></form>')
+      return
+    }
+    emailCode=''
+    session=null
+    await login()
+    rated=false
+    status='Signed in. Select Ranked when you want a rated game.'
+    $<HTMLDialogElement>('#modal')?.close()
+    render()
+  }catch(e){statusNode.textContent=e instanceof Error?e.message:'Couldn’t use the link.'}
+  finally{delete statusNode.dataset.busy}
 }
 async function passkey(action:'register'|'login',name?:string){
   const statusNode=$('#auth-status')
@@ -413,7 +473,7 @@ async function passkey(action:'register'|'login',name?:string){
     session=null
     await login()
     $<HTMLDialogElement>('#modal')?.close()
-    if(mode==='home'){rated=true;status='Ranked play is unlocked.'}
+    if(mode==='home'){rated=false;status='Ranked play is unlocked. Select Ranked to search for a rated game.'}
     render()
   }catch(e){statusNode.textContent=e instanceof Error?e.message:'Passkey sign-in failed.'}
   finally{delete statusNode.dataset.busy}
@@ -483,22 +543,25 @@ async function account(which:string){
     const node=$('#account');if(node)node.innerHTML='<h1>Leaderboard</h1>'+Object.entries(records).map(([group,rows])=>'<h2>'+safe(group)+'</h2>'+(rows.length?'<ol>'+rows.map(p=>'<li>'+safe(p.name)+' · '+p.rating+'</li>').join('')+'</ol>':'<p>No established ratings yet.</p>')).join('')
   }else{
     const p=await api<{user:{name:string};ratings:Record<string,Rating>;history:{id:string;pool:string;result:string;delta?:number}[]}>('profile')
-    const node=$('#account');if(node)node.innerHTML='<h1>'+safe(p.user.name)+'</h1>'+['Bullet','Blitz','Rapid'].map(key=>'<p>'+key+' <b>'+Math.round(p.ratings[key]?.rating??1500)+(p.ratings[key]&&deviation(p.ratings[key],Date.now())<=110?'':'?')+'</b></p>').join('')+'<h2>Game history</h2>'+(p.history.length?'<ul>'+p.history.map(g=>'<li><a href="/?game='+safe(g.id)+'">'+safe(g.pool)+' · '+safe(g.result)+(g.delta===undefined?'':' · '+(g.delta>=0?'+':'')+g.delta)+'</a></li>').join('')+'</ul>':'<p>No completed games yet.</p>')+button('logout','Sign out')
+    const node=$('#account');if(node)node.innerHTML='<h1>'+safe(p.user.name)+'</h1>'+['Bullet','Blitz','Rapid'].map(key=>'<p>'+key+' <b>'+Math.round(p.ratings[key]?.rating??1500)+(p.ratings[key]&&deviation(p.ratings[key],Date.now())<=110?'':'?')+'</b></p>').join('')+'<h2>Game history</h2>'+(p.history.length?'<ul>'+p.history.map(g=>'<li><a href="/?game='+safe(g.id)+'">'+safe(g.pool)+' · '+safe(g.result)+(g.delta===undefined?'':' · '+(g.delta>=0?'+':'')+g.delta)+'</a></li>').join('')+'</ul>':'<p>No completed games yet.</p>')+ (session?.emailReady&&!session.emailLinked?button('link-email','Add email sign-in')+' ':'')+button('logout','Sign out')
   }
 }
 async function handle(action:string){
   switch(action){
     case 'home':goHome();return
     case 'rules':modal('<h2>How to play</h2>'+rules+button('tutorial','Try the tutorial','primary'));return
-    case 'about':modal('<h2>About & privacy</h2><p>Remorse Chess uses cookies to keep your online seat. Game links can be viewed by anyone with the link. Ranked accounts store your player name, passkey public key, rating and game history. When enabled, the sponsor banner is provided by Adsterra and connects to its ad network.</p><p>The board uses chess symbols and original pixel sprites. Game sounds are synthesized.</p><a href="https://github.com/LukasJT/remorsechess">Source & feedback</a>');return
+    case 'about':modal('<h2>About & privacy</h2><p>Remorse Chess uses cookies to keep your online seat. Game links can be viewed by anyone with the link. Ranked accounts store your player name, passkey public key or verified email record, rating and game history. When enabled, the sponsor banner is provided by Adsterra and connects to its ad network.</p><p>The board uses chess symbols and original pixel sprites. Game sounds are synthesized.</p><a href="https://github.com/LukasJT/remorsechess">Source & feedback</a>');return
     case 'settings':settings();return
     case 'quiet':prefs={...prefs,volume:0,blood:'off',shake:false,flash:false,motion:true};savePrefs();render();return
-    case 'more':clocksDialog();return
+    case 'more':if(!queue)clocksDialog();return
+    case 'quick-clock':if(!queue){flexible=true;render()}return
     case 'watch':case 'leaders':case 'profile':await account(action);return
     case 'logout':await api('auth/logout',{});location.assign('/');return
     case 'local':case 'tutorial':local(action);return
     case 'bot':botSetup();return
     case 'sign-in':signIn();return
+    case 'email-confirm':await finishEmail();return
+    case 'link-email':linkEmail();return
     case 'passkey-login':await passkey('login');return
     case 'restart':local(mode,m?.control);return
     case 'queue':await search();return
@@ -555,7 +618,7 @@ root.addEventListener('click',event=>{
   unlockAudio()
   if(el.dataset.do){event.preventDefault();void handle(el.dataset.do).catch(e=>{tell(e.message);if(!$('#status'))modal('<h2>Something went wrong</h2><p>'+safe(e.message)+'</p>')})}
   else if(el.dataset.square!==undefined){focus=Number(el.dataset.square);square(focus)}
-  else if(el.dataset.control!==undefined){choice=Number(el.dataset.control);render()}
+  else if(el.dataset.control!==undefined){if(!queue){choice=Number(el.dataset.control);flexible=false;render()}}
   else if(el.dataset.tab){tab=el.dataset.tab;render()}
   else if(el.dataset.promotion!==undefined){$<HTMLDialogElement>('#modal')?.close();confirmAction(promotion[Number(el.dataset.promotion)])}
 })
@@ -568,6 +631,16 @@ root.addEventListener('change',event=>{
 })
 root.addEventListener('submit',event=>{
   const form=event.target as HTMLFormElement
+  if(form.id==='email-start'){
+    event.preventDefault()
+    void sendEmailLink(form)
+    return
+  }
+  if(form.id==='email-finish'){
+    event.preventDefault()
+    void finishEmail(String(new FormData(form).get('handle')??''))
+    return
+  }
   if(form.id==='passkey-register'){
     event.preventDefault()
     void passkey('register',String(new FormData(form).get('handle')??''))
@@ -601,7 +674,7 @@ root.addEventListener('submit',event=>{
   event.preventDefault()
   const data=new FormData(form),seconds=Number(data.get('minutes'))*60+Number(data.get('seconds')),increment=Number(data.get('increment'))
   if(seconds>21600||(!seconds&&increment)){form.reportValidity();return}
-  presets.push({seconds,increment});choice=presets.length-1;status='Custom clock selected · '+clockLabel(presets[choice]);render()
+  presets.push({seconds,increment});choice=presets.length-1;flexible=false;status='Custom clock selected · '+clockLabel(presets[choice]);render()
 })
 root.addEventListener('keydown',event=>{
   const el=event.target as HTMLElement
@@ -633,5 +706,11 @@ const route=()=>{
   else goHome()
 }
 window.addEventListener('popstate',route)
+const link=new URLSearchParams(location.hash.slice(1)).get('email')
 route()
+if(link&&/^[a-f0-9]{64}$/.test(link)){
+  emailCode=link
+  history.replaceState({},'',location.pathname+location.search)
+  emailRedeem()
+}
 void login().then(()=>{if(mode==='home'&&!queue&&!$<HTMLDialogElement>('#modal')?.open)render()}).catch(()=>{})

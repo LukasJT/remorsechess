@@ -1,5 +1,15 @@
 import { initial, opposite, play, type Game, type Action, type Event, type Result, type Side } from './rules.ts'
 export type Control = { seconds: number; increment: number }
+export type SearchClock = Control | 'any'
+export const quickClock:Control={seconds:180,increment:0}
+export function compatibleClock(a:SearchClock,b:SearchClock):Control|null {
+  if(a==='any'&&b==='any')return quickClock
+  if(a==='any'||b==='any'){
+    const fixed=a==='any'?b as Control:a
+    return presets.some(p=>p.seconds>0&&p.seconds===fixed.seconds&&p.increment===fixed.increment)?fixed:null
+  }
+  return a.seconds===b.seconds&&a.increment===b.increment?a:null
+}
 export type Entry = { action?: Action; event?: Event; result?: Result; clock: Record<Side, number>; start: number }
 export type Match = { game: Game; clock: Record<Side, number>; start: number; control: Control; version: number; log: Entry[]; offer: Side | null }
 export type Command = Action | { type:'resign' | 'offer' | 'accept' | 'decline' }
