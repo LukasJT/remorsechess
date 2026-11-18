@@ -2,6 +2,8 @@ import './style.css'
 import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,type Action,type Side,type Kind} from './rules.ts'
 import {command,makeMatch,expire,remaining,presets,type Match,type Control,type Command} from './match.ts'
 import {pool,deviation,type Rating} from './rating.ts'
+import {difficulties,type Difficulty} from './bot.ts'
+import type {PublicKeyCredentialCreationOptionsJSON,PublicKeyCredentialRequestOptionsJSON} from '@simplewebauthn/browser'
 const root=document.querySelector<HTMLElement>('#app')!
 const $=<T extends HTMLElement=HTMLElement>(s:string)=>document.querySelector<T>(s)
 const safe=(x:unknown)=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
@@ -37,19 +39,39 @@ const dice=['⚀','⚁','⚂','⚃','⚄','⚅']
 const cap=(s:Side)=>s==='white'?'White':'Black'
 const grid=Array.from({length:64},(_,i)=>(7-Math.floor(i/8))*8+i%8)
 const rules='<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · Devastated</dt><dd>Frozen. A friendly bishop must absolve it within its owner’s next three turns.</dd><dt>2–3 · Guilt-ridden</dt><dd>Can move but cannot capture until absolved.</dd><dt>4–5 · Unaffected</dt><dd>Moves and captures normally.</dd><dt>6 · Psychopath</dt><dd>After capturing, move the same piece again or end the turn. At three captures, bloodlust makes it capture only, even friendly pieces.</dd></dl><p>A bishop must already be adjacent, including diagonally, and spend a turn using Absolve. An absolved piece never rolls again. Kings cannot be captured.</p>'
-const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'pixel',uiSound:true}
+const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:false,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
 type Snapshot={room:{white?:string;black?:string;open:boolean;rated:boolean;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
-type Session={name:string;account:boolean;signIn:boolean}
+type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean}
 let session:Session|null=null
 let mode='home', m:Match|null=null, selected:number|null=null, absolve=false, flipped=false, tab='Moves', status=''
 let id='', info:Snapshot['room']|null=null, seat:Side|null=null, offset=0, socket:WebSocket|null=null, busy=false
+let difficulty:Difficulty='tactical'
+let human:Side='white'
+let botAgent:Worker|null=null
+let lessonTimer=0
 let choice=3, queue:({rated:boolean}&Control)|null=null, queueTimer=0, generation=0, rated=false
 let names={white:'White',black:'Black'}
 let past:Match[]=[], future:Match[]=[], review:number|null=null, seed=initial(), lesson=0, promotion:Action[]=[]
 let audio:AudioContext|undefined, soundVersion=-1, drag:number|null=null, focus=4
-const adUrl=import.meta.env.VITE_BANNER_URL as string|undefined
-const ad=()=>'<aside class="advert">ADVERTISEMENT'+(adUrl?.startsWith('https://')?'<iframe title="Advertisement" loading="lazy" sandbox="allow-scripts allow-popups" referrerpolicy="no-referrer" src="'+safe(adUrl)+'"></iframe>':'')+'</aside>'
+const bannerHost=document.createElement('div')
+bannerHost.className='sponsor-slot'
+document.body.appendChild(bannerHost)
+function renderSponsor(){
+  const width=document.documentElement.clientWidth
+  const format=width>=765?'desktop':width>=346?'mobile':'hidden'
+  const state=mode!=='home'?'hidden':prefs.ads?format:'opt-in'
+  if(bannerHost.dataset.state===state)return
+  bannerHost.dataset.state=state
+  if(state==='hidden'){bannerHost.replaceChildren();return}
+  if(state==='opt-in'){
+    bannerHost.innerHTML='<aside class="advert"><span>SPONSOR</span>'+button('show-ads','Show sponsor banner','link')+'</aside>'
+    bannerHost.querySelector('button')?.addEventListener('click',()=>{prefs.ads=true;savePrefs();renderSponsor()})
+    return
+  }
+  bannerHost.innerHTML='<aside class="advert banner '+state+'"><span>ADVERTISEMENT</span><iframe title="Sponsor banner" loading="lazy" sandbox="allow-scripts allow-popups" referrerpolicy="strict-origin-when-cross-origin" src="/banner/'+state+'"></iframe></aside>'
+}
+window.addEventListener('resize',renderSponsor)
 async function api<T>(path:string,data?:unknown):Promise<T>{
   const r=await fetch('/api/'+path,data===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)})
   if(r.status===204)return undefined as T
@@ -67,7 +89,7 @@ async function login(){
     const remote=await api<Partial<typeof defaults>>('settings').catch(()=>null)
     if(remote){
       for(const key of Object.keys(defaults) as (keyof typeof defaults)[]){
-        if(typeof remote[key]===typeof defaults[key])prefs={...prefs,[key]:remote[key]}
+        if(key!=='ads'&&typeof remote[key]===typeof defaults[key])prefs={...prefs,[key]:remote[key]}
       }
       try{localStorage.setItem('remorse-settings',JSON.stringify(prefs))}catch{}
     }
@@ -81,7 +103,7 @@ function clocks(indices:number[]){
   return indices.map(i=>'<button data-control="'+i+'" aria-pressed="'+(choice===i)+'"><b>'+clockLabel(presets[i])+'</b><small>'+(presets[i].seconds?pool(presets[i].seconds,presets[i].increment):'Untimed')+'</small></button>').join('')
 }
 function home(){
-  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+'> Rated game</label>':'')+button(queue?'cancel':'queue',queue?'Cancel search':'Find online match','primary full')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section>'+ad()+'</main>'
+  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+'> Rated game</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+button(queue?'cancel':'queue',queue?'Cancel search':'Find online match','primary full')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section></main>'
 }
 let reviewCache:{source:Match;index:number;view:Match}|null=null
 function view(){
@@ -97,9 +119,9 @@ function view(){
   reviewCache={source:m!,index:review,view:snapshot}
   return snapshot
 }
-const canAct=()=>Boolean(m?.start&&!m.game.result&&!busy&&review===null&&(mode==='online'?seat===m.game.side:mode!=='bot'||m.game.side==='white'))
+const canAct=()=>Boolean(m?.start&&!m.game.result&&!busy&&review===null&&(mode!=='tutorial'||m.game.side==='white'||lesson===3)&&(mode==='online'?seat===m.game.side:mode!=='bot'||m.game.side===human))
 function player(side:Side,v:Match){
-  const who=mode==='online'?info?.[side]??'Open seat':mode==='bot'&&side==='black'?'Gremlin Bot':names[side]
+  const who=mode==='online'?info?.[side]??'Open seat':mode==='bot'&&side!==human?difficulties[difficulty].name+' Bot':names[side]
   const rating=mode==='online'?info?.ratings?.[side]:undefined
   const displayRating=rating?' · '+Math.round(rating.rating)+(deviation(rating,Date.now())>110?'?':''):''
   return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'"><span class="icon '+side+'">♚</span><div><b>'+safe(who)+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+'</small></div><time id="clock-'+side+'">—</time></div>'
@@ -108,6 +130,12 @@ function game(){
   if(!m)return '<main class="panel waiting"><p id="status" role="status">'+safe(status||'Opening room…')+'</p>'+button('home','Back to lobby')+'</main>'
   const v=view(),g=v.game,upper=flipped?'white':'black'
   const events=v.log.flatMap(e=>e.event?[e.event]:[]), last=events.at(-1), rolled=events.filter(e=>e.roll).at(-1)
+  const latestCapture=events.findLast(event=>Boolean(event.capture))
+  const resultMood=latestCapture?.captureState?.mood??latestCapture?.mood
+  const face=latestCapture?.captureState?.originalRoll??latestCapture?.roll??rolled?.roll??5
+  const reused=Boolean(latestCapture&&!latestCapture.roll)
+  const moodLine=latestCapture?(resultMood?moodNames[resultMood]:'Capture recorded'):'One roll per piece'
+  const tray='<div class="die-row"><span id="die" aria-hidden="true">'+dice[face-1]+'</span><div><b id="dice-label">'+(latestCapture?(reused?'Original roll '+face+' · No reroll':'Rolled '+face):'Awaiting a capture')+'</b><small id="mood-line">'+moodLine+'</small></div></div>'
   const p=selected===null?undefined:at(g,selected)
   const actions=p?legal(g,p.square):[]
   const board=(flipped?grid.slice().reverse():grid).map((sq,i)=>{
@@ -123,12 +151,13 @@ function game(){
     const annotations=[x.roll?'🎲 '+x.roll+' · '+moodNames[x.mood!]:x.mood==='bloodlust'?'Bloodlust activated':'',x.capture?.side===x.side?'Friendly capture':'',...x.vanished.map(p=>name(p.square)+' lost to remorse')].filter(Boolean)
     return tab==='Events'&&!annotations.length&&x.action.type!=='absolve'?'':'<li><span>'+x.turn+' '+(x.side==='white'?'○':'●')+'</span><div><b>'+safe(x.text)+'</b>'+annotations.map(a=>'<small>'+safe(a)+'</small>').join('')+'</div></li>'
   }).join('')
-  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?'PRACTICE VS BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side==='white')?button('end','End turn','primary'):'')+(actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel absolution':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status)+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2><div class="die-row"><span id="die">'+dice[(rolled?.roll??5)-1]+'</span><div><b>'+(rolled?'Rolled '+rolled.roll:'Awaiting a capture')+'</b><small>'+(rolled?.mood?moodNames[rolled.mood]:'One roll per piece')+'</small></div></div>'+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?rules:history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div>'+ad()+'</aside></main>'
+  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?difficulties[difficulty].name.toUpperCase()+' BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel absolution':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status)+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?rules:history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
 function render(){
   const focused=document.activeElement instanceof HTMLElement&&document.activeElement.matches('[data-square]')
   const settingsOpen=$<HTMLDialogElement>('#modal')?.open&&$('#modal')?.dataset.kind==='settings'
-  root.innerHTML='<header><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a><nav>'+button('rules','Rules')+button('leaders','Ratings')+button('settings','⚙ Settings')+(session?.account?button('profile',safe(session.name)):session?.signIn?'<a href="/api/auth/start">Sign in</a>':'')+'</nav></header>'+(mode==='home'?home():mode==='account'?'<main class="panel account" id="account">Loading…</main>':game())+'<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
+  root.innerHTML='<header><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a><nav>'+button('rules','Rules')+button('leaders','Ratings')+button('settings','⚙ Settings')+(session?.account?button('profile',safe(session.name)):session?.passkeys?button('sign-in','Sign in'):session?.signIn?'<a href="/api/auth/start">Sign in</a>':'')+'</nav></header>'+(mode==='home'?home():mode==='account'?'<main class="panel account" id="account">Loading…</main>':game())+'<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
+  renderSponsor()
   document.body.classList.toggle('crt',prefs.crt)
   document.body.classList.toggle('reduced',prefs.motion||prefs.speed==='off')
   if(focused)$('[data-square="'+focus+'"]')?.focus({preventScroll:true})
@@ -156,7 +185,7 @@ function modal(html:string,kind=''){
   if(!d.open)d.showModal()
 }
 function settings(){
-  const checks=Object.entries({yells:'Capture yells',diceSound:'Dice sounds',uiSound:'Move sounds',diceMotion:'Dice animation',last:'Last move highlight',drag:'Drag pieces',shake:'Screen shake',flash:'Impact flash',motion:'Reduced motion',crt:'Scanlines',coords:'Coordinates',hints:'Move hints',autoFlip:'Auto-flip local board',confirm:'Confirm friendly captures'})
+  const checks=Object.entries({yells:'Capture yells',diceSound:'Dice sounds',uiSound:'Move sounds',diceMotion:'Dice animation',moodMotion:'Piece mood animation',ads:'Sponsor banner',last:'Last move highlight',drag:'Drag pieces',shake:'Screen shake',flash:'Impact flash',motion:'Reduced motion',crt:'Scanlines',coords:'Coordinates',hints:'Move hints',autoFlip:'Auto-flip local board',confirm:'Confirm friendly captures'})
     .map(([key,label])=>'<label><input type="checkbox" data-pref="'+key+'" '+(prefs[key as keyof typeof prefs]?'checked':'')+'>'+label+'</label>').join('')
   const selects=Object.entries({blood:['off','low','full'],speed:['off','fast','normal'],theme:['parchment','slate'],pieces:['pixel','classic']}).map(([key,opts])=>'<label>'+key+' <select data-pref="'+key+'">'+opts.map(v=>'<option '+(v===prefs[key as keyof typeof prefs]?'selected':'')+'>'+v+'</option>').join('')+'</select></label>').join('')
   modal('<h2>Settings</h2><div class="settings"><label>Volume <input data-pref="volume" type="range" min="0" max="100" value="'+prefs.volume+'"></label>'+button('quiet','Quiet mode')+checks+selects+'</div>','settings')
@@ -174,6 +203,7 @@ function clocksDialog(){
 }
 function closeRoom(){
   id=''
+  botAgent?.terminate();botAgent=null;clearTimeout(lessonTimer)
   if(socket){socket.onclose=null;socket.close();socket=null}
 }
 function goHome(){
@@ -183,7 +213,7 @@ function goHome(){
 function local(kind:string,control=presets[choice]){
   closeRoom();void cancel();history.replaceState({},'','/')
   mode=kind;m=makeMatch(kind==='tutorial'?{seconds:0,increment:0}:control,Date.now())
-  seat=null;selected=null;absolve=false;review=null;flipped=false;past=[];future=[];tab='Moves';status='';soundVersion=-1;focus=4
+  seat=null;selected=null;absolve=false;review=null;flipped=kind==='bot'&&human==='black';past=[];future=[];tab='Moves';status='';soundVersion=-1;focus=4
   if(kind==='tutorial'){
     const positions=[['white','k',4],['white','b',18],['white','n',10],['black','k',60],['black','p',27],['black','p',48]] as const
     const full=initial()
@@ -193,6 +223,7 @@ function local(kind:string,control=presets[choice]){
   }
   seed=m.game
   render()
+  if(kind==='bot')bot()
 }
 let pulling=false
 async function sync(){
@@ -205,11 +236,12 @@ async function sync(){
 function apply(data:Snapshot){
   if(m&&data.match.version<m.version)return
   const first=!m
+  const previousLog=m?.log.length??0
   const changed=first||m?.version!==data.match.version||seat!==data.seat
   if(changed)m=data.match
   offset=data.now-Date.now();info=data.room;seat=data.seat
   if(first){flipped=seat==='black';soundVersion=data.match.version}
-  if(changed){status='';render();if(!first&&review===null)effects(data.match);const node=$('#log');if(node&&review===null)node.scrollTop=node.scrollHeight}
+  if(changed){status='';render();if(!first&&review===null&&data.match.log.length>previousLog)effects(data.match);const node=$('#log');if(node&&review===null)node.scrollTop=node.scrollHeight}
 }
 function wire(room:string){
   if(id!==room)return
@@ -262,12 +294,59 @@ function effects(match:Match){
   }
   if(prefs.uiSound&&!e.capture)tone(200,85,.08,0,'triangle')
   if(e.capture&&prefs.yells){tone(520,95,.26,0,'sawtooth');tone(770,210,.22,0,'triangle')}
-  if(e.roll&&prefs.diceSound)for(let i=0;i<3;i++)tone(300+i*90,100,.05,i*.055,'square')
+  if(e.capture&&prefs.diceSound)for(let i=0;i<3;i++)tone(300+i*90,100,.05,i*.055,'square')
   if(prefs.motion||prefs.speed==='off'||e.action.type==='end')return
   const duration=prefs.speed==='fast'?145:350
   const tile=$('[data-square="'+e.action.to+'"]')
   tile?.querySelector('.piece')?.animate([{transform:'translateY(-10%) scale(1.12)'},{transform:'none'}],{duration})
-  if(e.roll&&prefs.diceMotion)$('#die')?.animate([{transform:'rotate(-35deg) scale(.65)'},{transform:'rotate(24deg) scale(1.13)'},{transform:'none'}],{duration})
+  if(e.capture){
+    const state=e.captureState
+    const landed=at(match.game,e.action.to)
+    const mood=state?.mood??e.mood??landed?.mood??'normal'
+    const reel=$('#die')
+    const result=$('#mood-line')
+    const spinDuration=prefs.speed==='fast'?245:590
+    const face=state?.originalRoll??e.roll??landed?.roll
+    if(reel&&prefs.diceMotion){
+      const final=reel.textContent??(face?dice[face-1]:'—')
+      const strip=document.createElement('span')
+      strip.className='dice-strip'
+      for(const glyph of [2,4,1,5,3,0].map(index=>dice[index])){
+        const frame=document.createElement('span');frame.textContent=glyph;strip.appendChild(frame)
+      }
+      reel.replaceChildren(strip)
+      reel.classList.add('rolling')
+      $('#dice-label')?.classList.add('awaiting')
+      if(result)result.classList.add('awaiting')
+      const frames=strip.animate([{transform:'translateY(0)'},{transform:'translateY(-83.33%)'}],{duration:spinDuration,easing:'steps(5,end)'})
+      reel.animate([{transform:'rotate(-25deg) scale(.8)'},{transform:'rotate(20deg) scale(1.08)'},{transform:'rotate(-12deg)'},{transform:'none'}],{duration:spinDuration})
+      void frames.finished.then(()=>{
+        if(!reel.isConnected)return
+        reel.textContent=final
+        reel.classList.remove('rolling')
+        $('#dice-label')?.classList.remove('awaiting')
+        result?.classList.remove('awaiting')
+      },()=>{})
+    }
+    if(tile&&prefs.moodMotion){
+      const flare=document.createElement('span')
+      flare.className='mood-flare '+mood
+      flare.textContent={normal:'Unaffected',devastated:'Devastated',guilty:'Guilt-ridden',psychopath:'Psychopath',bloodlust:'Bloodlust'}[mood]
+      flare.setAttribute('aria-hidden','true')
+      tile.appendChild(flare)
+      const delay=prefs.diceMotion?spinDuration:0
+      const squiggle={
+        devastated:[{transform:'translateY(-8%)'},{transform:'translateY(12%) scale(.96,.72)'},{transform:'none'}],
+        guilty:[{transform:'rotate(-9deg)'},{transform:'rotate(9deg)'},{transform:'none'}],
+        normal:[{transform:'scale(.95)'},{transform:'scale(1.12)'},{transform:'none'}],
+        psychopath:[{transform:'rotate(-8deg) scale(1.12)'},{transform:'rotate(7deg) scale(1.22)'},{transform:'none'}],
+        bloodlust:[{transform:'scale(.92)'},{transform:'scale(1.26)'},{transform:'none'}],
+      }
+      tile.querySelector('.piece')?.animate(squiggle[mood],{delay,duration:540})
+      const reveal=flare.animate([{opacity:0,transform:'translate(-50%, 9px)'},{opacity:1,transform:'translate(-50%, -3px)',offset:.2},{opacity:1,transform:'translate(-50%, -8px)',offset:.73},{opacity:0,transform:'translate(-50%, -15px)'}],{delay,duration:1300,fill:'both'})
+      void reveal.finished.then(()=>flare.remove(),()=>flare.remove())
+    }
+  }
   if(e.action.type==='absolve')tile?.animate([{filter:'brightness(1.7)'},{filter:'none'}],{duration})
   if(!e.capture)return
   if(prefs.shake) $('.board')?.animate([{transform:'translateX(-3px)'},{transform:'translateX(3px)'},{transform:'none'}],{duration})
@@ -289,26 +368,54 @@ function offlineStep(side:Side,action:Command,roll?:()=>number){
   if(mode==='local'&&prefs.autoFlip)flipped=m.game.side==='black'
   status='';render();effects(next);return true
 }
-let botGeneration=0
 function bot(){
-  const turn=++botGeneration
-  if(mode!=='bot'||!m||m.game.side!=='black'||m.game.result)return
-  window.setTimeout(()=>{
-    if(turn!==botGeneration||mode!=='bot'||!m||m.game.side!=='black'||m.game.result)return
-    const v={p:1,n:3,b:3,r:5,q:9,k:30}
-    const positions=legal(m.game).map(action=>{
-      if(action.type==='end')return {action,score:-.25}
-      if(action.type==='absolve')return {action,score:1.5}
-      const p=at(m!.game,action.to), simulated=play(m!.game,action,()=>4)?.game
-      let score=p?(p.side==='white'?1:-2)*v[p.kind]:.08*(rank(action.from)-rank(action.to))+.08*(3.5-Math.abs(file(action.to)-3.5))
-      if(action.promotion)score+=v[action.promotion]
-      if(simulated?.result)score+=simulated.result.winner==='black'?100:simulated.result.winner==='white'?-100:0
-      if(simulated&&simulated.side==='white'&&legal(simulated).some(a=>a.type==='move'&&a.to===action.to))score-=.65*v[at(m!.game,action.from)!.kind]
-      return {action,score:score+Math.random()*.3}
-    }).sort((a,b)=>b.score-a.score)
-    if(positions[0])offlineStep('black',positions[0].action)
-    bot()
-  },450)
+  if(mode!=='bot'||!m||m.game.side===human||m.game.result)return
+  const current=m
+  botAgent?.terminate()
+  const worker=new Worker(new URL('./bot-worker.ts',import.meta.url),{type:'module'})
+  botAgent=worker
+  const commit=(action:Action|undefined)=>{
+    worker.terminate()
+    if(botAgent===worker)botAgent=null
+    if(mode!=='bot'||m!==current||!action)return
+    window.setTimeout(()=>{
+      if(mode!=='bot'||m!==current||!action)return
+      offlineStep(current.game.side,action)
+      bot()
+    },230)
+  }
+  worker.onmessage=(event:MessageEvent<Action|undefined>)=>commit(event.data)
+  worker.onerror=()=>commit(legal(current.game)[0])
+  worker.postMessage({game:current.game,difficulty})
+}
+function botSetup(){
+  modal('<h2>Practice against a bot</h2><form id="bot-form"><fieldset><legend>Difficulty</legend>'+
+    Object.entries(difficulties).map(([key,value])=>'<label class="bot-choice"><input type="radio" name="difficulty" value="'+key+'" '+(key===difficulty?'checked':'')+'><span><b>'+value.name+'</b><small>'+value.description+'</small></span></label>').join('')+
+    '</fieldset><label>Play as <select name="color"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select></label> <button class="primary">Start game</button></form>')
+}
+function signIn(){
+  modal('<h2>Ranked account</h2><p>Use a passkey from your device or password manager. Keep it synced so you can sign in again.</p>'+
+    '<form id="passkey-register"><label>Player name <input name="handle" autocomplete="nickname" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_\\-]{3,20}"></label> <button class="primary">Create account</button></form>'+
+    button('passkey-login','Sign in with a passkey')+'<p class="auth-status" role="status" id="auth-status"></p>')
+}
+async function passkey(action:'register'|'login',name?:string){
+  const statusNode=$('#auth-status')
+  if(!statusNode||statusNode.dataset.busy)return
+  statusNode.dataset.busy='true'
+  statusNode.textContent='Waiting for your passkey…'
+  try{
+    const {startRegistration,startAuthentication}=await import('@simplewebauthn/browser')
+    const response=action==='register'
+      ?await startRegistration({optionsJSON:await api<PublicKeyCredentialCreationOptionsJSON>('auth/passkey/start',{action,name})})
+      :await startAuthentication({optionsJSON:await api<PublicKeyCredentialRequestOptionsJSON>('auth/passkey/start',{action})})
+    await api('auth/passkey/finish',{action,response})
+    session=null
+    await login()
+    $<HTMLDialogElement>('#modal')?.close()
+    if(mode==='home'){rated=true;status='Ranked play is unlocked.'}
+    render()
+  }catch(e){statusNode.textContent=e instanceof Error?e.message:'Passkey sign-in failed.'}
+  finally{delete statusNode.dataset.busy}
 }
 async function send(action:Command){
   if(!m||review!==null||busy)return
@@ -332,7 +439,15 @@ async function send(action:Command){
   if(!offlineStep(side,action,mode==='tutorial'?()=>1:undefined))return
   if(mode==='bot')bot()
   if(mode==='tutorial'){
-    if(lesson===0){lesson=1;offlineStep('black',{type:'move',from:48,to:40});tell('The knight rolled 1. Select the bishop on c3, choose Absolve, then select d4.')}
+    if(lesson===0){
+      lesson=1
+      tell('Your knight rolled 1 and is devastated.')
+      lessonTimer=window.setTimeout(()=>{
+        if(mode!=='tutorial'||lesson!==1)return
+        offlineStep('black',{type:'move',from:48,to:40})
+        tell('Select the bishop on c3, choose Absolve, then select d4.')
+      },prefs.motion||prefs.speed==='off'?250:2000)
+    }
     else if(lesson===1){lesson=3;modal('<h2>Absolution complete</h2><p>The knight can move and capture again. Its first roll still counts, so it will never roll again.</p>'+button('local','Play a full game','primary'))}
   }
 }
@@ -374,13 +489,16 @@ async function handle(action:string){
   switch(action){
     case 'home':goHome();return
     case 'rules':modal('<h2>How to play</h2>'+rules+button('tutorial','Try the tutorial','primary'));return
-    case 'about':modal('<h2>About & privacy</h2><p>Remorse Chess uses cookies to keep your online seat. Game links can be viewed by anyone with the link. Ranked accounts record your public GitHub username, rating and game history.</p><p>Artwork and synthesized audio were created for this project.</p><a href="https://github.com/LukasJT/remorsechess">Source & feedback</a>');return
+    case 'about':modal('<h2>About & privacy</h2><p>Remorse Chess uses cookies to keep your online seat. Game links can be viewed by anyone with the link. Ranked accounts store your player name, passkey public key, rating and game history. When enabled, the sponsor banner is provided by Adsterra and connects to its ad network.</p><p>The board uses chess symbols and original pixel sprites. Game sounds are synthesized.</p><a href="https://github.com/LukasJT/remorsechess">Source & feedback</a>');return
     case 'settings':settings();return
     case 'quiet':prefs={...prefs,volume:0,blood:'off',shake:false,flash:false,motion:true};savePrefs();render();return
     case 'more':clocksDialog();return
     case 'watch':case 'leaders':case 'profile':await account(action);return
     case 'logout':await api('auth/logout',{});location.assign('/');return
-    case 'local':case 'bot':case 'tutorial':local(action);return
+    case 'local':case 'tutorial':local(action);return
+    case 'bot':botSetup();return
+    case 'sign-in':signIn();return
+    case 'passkey-login':await passkey('login');return
     case 'restart':local(mode,m?.control);return
     case 'queue':await search();return
     case 'cancel':await cancel();return
@@ -449,6 +567,22 @@ root.addEventListener('change',event=>{
 })
 root.addEventListener('submit',event=>{
   const form=event.target as HTMLFormElement
+  if(form.id==='passkey-register'){
+    event.preventDefault()
+    void passkey('register',String(new FormData(form).get('handle')??''))
+    return
+  }
+  if(form.id==='bot-form'){
+    event.preventDefault()
+    const data=new FormData(form)
+    const value=data.get('difficulty')
+    if(typeof value!=='string'||!(value in difficulties))return
+    difficulty=value as Difficulty
+    const color=data.get('color')
+    human=color==='random'?(Math.random()<.5?'white':'black'):color==='black'?'black':'white'
+    local('bot')
+    return
+  }
   if(form.id==='report'){
     event.preventDefault()
     const reason=new FormData(form).get('reason')

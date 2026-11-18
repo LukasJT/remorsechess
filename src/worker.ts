@@ -2,6 +2,9 @@ import { DurableObject } from 'cloudflare:workers'
 import { command, expire, makeMatch, remaining, type Command, type Control, type Entry, type Match } from './match.ts'
 import { defaultRating, deviation, pool, updateRating, type Rating } from './rating.ts'
 import type { Side } from './rules.ts'
+import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
+import { banner } from './ads.ts'
 
 type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
 interface Env { GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string }
@@ -178,6 +181,39 @@ export class Lobby extends DurableObject<Env> {
   async signIn(id:string,user:Identity){
     await this.ctx.storage.put('session/'+id,{user,expires:Date.now()+7*86400_000})
   }
+  async startCeremony(guest:string,ceremony:Ceremony){
+    await this.ctx.storage.put('ceremony/'+guest,ceremony)
+  }
+  async takeCeremony(guest:string){
+    return this.ctx.storage.transaction(async txn=>{
+      const key='ceremony/'+guest
+      const entry=await txn.get<Ceremony>(key)
+      if(entry)await txn.delete(key)
+      return entry&&entry.expires>Date.now()?entry:null
+    })
+  }
+  async passkey(id:string){return await this.ctx.storage.get<Passkey>('passkey/'+id)}
+  async addPasskey(record:Passkey,sessionID:string){
+    return this.ctx.storage.transaction(async txn=>{
+      const handle='handle/'+record.user.name.toLowerCase()
+      const key='passkey/'+record.credential.id
+      if(await txn.get(handle)||await txn.get(key))return false
+      await txn.put(handle,record.user.id)
+      await txn.put(key,record)
+      await txn.put('session/'+sessionID,{user:record.user,expires:Date.now()+7*86400_000})
+      return true
+    })
+  }
+  async authenticatePasskey(id:string,previous:number,counter:number,sessionID:string){
+    return this.ctx.storage.transaction(async txn=>{
+      const key='passkey/'+id
+      const record=await txn.get<Passkey>(key)
+      if(!record||record.credential.counter!==previous)return false
+      if(counter!==previous)await txn.put(key,{...record,credential:{...record.credential,counter}})
+      await txn.put('session/'+sessionID,{user:record.user,expires:Date.now()+7*86400_000})
+      return true
+    })
+  }
   async logout(id:string){ await this.ctx.storage.delete('session/'+id) }
   async profile(user:Identity):Promise<Profile>{
     return await this.ctx.storage.get<Profile>('profile/'+user.id) ?? {user,ratings:{},history:[]}
@@ -283,6 +319,7 @@ export default {
       url.hostname='remorsechess.com'
       return Response.redirect(url.href,301)
     }
+    if(url.pathname.startsWith('/banner/'))return banner(url.pathname.slice(8))
     if(!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req)
     const endpoint=url.pathname.slice(5)
     if(endpoint==='api' || endpoint.length>120) return problem('Not found',404)
@@ -331,8 +368,59 @@ export default {
     }
     const guest=guestValid?guestId:token()
     const player=profile ?? {id:'guest:'+guest,name:'Guest '+guest.slice(0,5).toUpperCase(),account:false}
+    const passkeys=canUsePasskeys(url)
+    if(endpoint.startsWith('auth/passkey/')&&req.method==='POST'){
+      if(!passkeys||!guestValid)return problem('Passkey sign-in is unavailable here',403)
+      if(profile)return problem('Already signed in',409)
+      const store=lobby(env)
+      if(Number(req.headers.get('content-length')??0)>24_000)return problem('Request is too large',413)
+      const text=await req.text()
+      if(text.length>24_000)return problem('Request is too large',413)
+      const input=await new Response(text).json<Record<string,unknown>>().catch(()=>null)
+      if(!input || typeof input!=='object')return problem('Invalid sign-in request')
+      if(endpoint==='auth/passkey/start'){
+        const expires=Date.now()+120_000
+        if(input.action==='register'){
+          const name=accountName(input.name)
+          if(!name)return problem('Use 3–20 letters, numbers, underscores or hyphens.')
+          const userId=token()
+          const options=await registration(url.hostname,name,userId)
+          await store.startCeremony(guest,{action:'register',challenge:options.challenge,name,userId,expires})
+          return json(options)
+        }
+        if(input.action==='login'){
+          const options=await authentication(url.hostname)
+          await store.startCeremony(guest,{action:'login',challenge:options.challenge,expires})
+          return json(options)
+        }
+        return problem('Unknown passkey operation')
+      }
+      if(endpoint==='auth/passkey/finish'){
+        const ceremony=await store.takeCeremony(guest)
+        if(!ceremony || ceremony.action!==input.action)return problem('Sign-in expired. Start again.',403)
+        const response=input.response
+        if(!response||typeof response!=='object'||!('id' in response)||typeof response.id!=='string'||!/^[-_A-Za-z0-9]{1,1400}$/.test(response.id))return problem('Invalid passkey')
+        const sessionID=token()
+        try{
+          if(ceremony.action==='register'){
+            const record=await verifyNew(url,ceremony,response as RegistrationResponseJSON)
+            if(!record)return problem('Could not verify your passkey',403)
+            if(!await store.addPasskey(record,sessionID))return problem('That player name is already in use. Choose another.',409)
+          }else{
+            const record=await store.passkey(response.id)
+            if(!record)return problem('No Remorse Chess account matches this passkey',403)
+            const counter=await verifyExisting(url,ceremony,response as AuthenticationResponseJSON,record)
+            if(counter===null||!await store.authenticatePasskey(response.id,record.credential.counter,counter,sessionID))return problem('Could not verify your passkey',403)
+          }
+        }catch{return problem('Could not verify your passkey. Try again.',403)}
+        const reply=json({ok:true})
+        reply.headers.append('set-cookie',setCookie(req,'remorse_account',sessionID,86400*7))
+        return reply
+      }
+      return problem('Not found',404)
+    }
     if(endpoint==='session'){
-      const resp=json({name:player.name,account:player.account,signIn})
+      const resp=json({name:player.name,account:player.account,signIn,passkeys})
       if(!guestValid) resp.headers.append('set-cookie',setCookie(req,'remorse_guest',guest,86400*30))
       return resp
     }

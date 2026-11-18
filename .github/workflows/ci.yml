@@ -26,6 +26,7 @@ jobs:
           for attempt in {1..45}; do
             if curl -fsS http://127.0.0.1:8787/api/health; then
               node tests/smoke.mjs
+              node tests/ranked.mjs
               exit
             fi
             sleep 1

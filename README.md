@@ -56,12 +56,18 @@ Check `/api/health` over HTTPS. Confirm WebSocket updates and reconnect behavior
 
 ### Ranked accounts
 
-Register a dedicated GitHub OAuth application with the callback `https://remorsechess.com/api/auth/callback`. Configure `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as Worker secrets. For local sign-in, use a separate GitHub OAuth app with a localhost callback and put its keys in the ignored `.dev.vars` file. Without those settings, the site offers guest and local play. Account recovery is handled by GitHub. The accessible credits and privacy information is linked from the site footer.
+Passkey registration and sign-in are available on the production apex and localhost. Users register a unique public handle and sign in with a device or password manager. A synced passkey is needed to carry the account to a new device. GitHub sign-in remains an optional legacy configuration, with its existing Worker secrets and callback. No Supabase or Resend is used.
+
+`node tests/ranked.mjs` verifies passkey registration and sign-in with ephemeral keys, a rated pairing, and exactly one rating update per player. It defaults to local development.
+
+### Bots
+
+Rookie, Tactician, and Grandmaster run in a browser worker. The search evaluates the actual legal actions and weights all distinct capture outcomes by their dice odds. It considers bishop absolution, bonus moves, self-captures, and the cost of losing a piece to remorse. Run `node scripts/train-bot.mjs` to reproduce the 18-game self-play weight comparison. Some long games are scored as draws at the training cutoff.
 
 ### Banner placement
 
-The ad slots ship with placeholders. Once a banner publisher and consent flow are configured, build with `VITE_BANNER_URL` pointing to a dedicated HTTPS banner page. The game renders it in a sandboxed iframe with reserved space. Rebuild the frontend after setting or removing the banner URL. No Supabase or Resend configuration is used.
+The desktop 728×90 and mobile 320×50 Adsterra units are served on isolated banner routes. The iframe is available below the lobby with local opt-in and can be disabled in Settings. No ad loads inside a match.
 
 ## Launch status
 
-Casual rooms, quick matchmaking, local play, tutorial, bot, and replay are covered by the playable implementation. Production rollout also requires Cloudflare account access and domain attachment. Verify configured OAuth and ranked results using two real test accounts. Publisher inventory and consent must be confirmed before enabling ads. Correspondence play and tournaments are separate milestones.
+Casual rooms, quick matchmaking, local play, tutorial, bot, and replay are covered by the playable implementation. The Cloudflare production site uses the same rules and smoke-tested ranked flow. Correspondence play and tournaments are separate milestones.

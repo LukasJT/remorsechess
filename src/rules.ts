@@ -6,7 +6,7 @@ export type Action = { type: 'move'; from: number; to: number; promotion?: Kind 
 export type Result = { winner: Side | null; reason: string }
 export type Ep = { pawn: number; square: number; target: number }
 export type Game = { rulesVersion: 1; pieces: Piece[]; side: Side; bonus: number | null; turn: number; ep: Ep | null; nextEp: Ep | null; quiet: number; irreversible: boolean; seen: Record<string, number>; result: Result | null }
-export type Event = { turn: number; side: Side; action: Action; text: string; roll?: number; mood?: Mood; capture?: Piece; vanished: Piece[] }
+export type Event = { turn: number; side: Side; action: Action; text: string; roll?: number; mood?: Mood; capture?: Piece; captureState?: {mood:Mood; originalRoll:number; kills:number}; vanished: Piece[] }
 export const opposite = (side: Side): Side => side === 'white' ? 'black' : 'white'
 export const file = (square: number) => square % 8
 export const rank = (square: number) => Math.floor(square / 8)
@@ -190,6 +190,7 @@ export function play(game: Game, action: Action, die: () => number = rollDie): {
         moved.mood = 'bloodlust'
         event.mood = moved.mood
       }
+      event.captureState = {mood:moved.mood,originalRoll:moved.roll,kills:moved.kills}
       next.pieces = next.pieces.map(p => p.id === moved.id ? moved : p)
       if (game.bonus === null && (moved.mood === 'psychopath' || moved.mood === 'bloodlust')) {
         next.bonus = moved.id
