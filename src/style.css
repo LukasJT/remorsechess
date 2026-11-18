@@ -37,3 +37,16 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 
 .queue-preference{margin-bottom:.5rem}.queue-preference button{width:100%;text-align:left}#email-start,#email-finish{margin-bottom:1rem}#email-start input,#email-finish input{max-width:100%;padding:.4rem}#email-status{margin:.6rem 0;color:var(--gold)}
 .piece img.classic-pawn{width:.77em;height:.83em;image-rendering:auto}
+.self-capture{position:absolute;inset:0;z-index:3;display:grid;place-items:center;pointer-events:none}
+.remorse-ash{position:absolute;z-index:4;top:54%;left:50%;width:5px;height:5px;background:#e5b7ff;box-shadow:0 0 5px #5e3c64;pointer-events:none}
+#modal[data-kind="result"]{width:min(430px,calc(100% - 24px));padding:0}
+.result-content{text-align:center;padding:24px 22px 20px;border-top:5px solid var(--gold)}
+.result-content.loss{border-top-color:var(--red)}.result-content.draw{border-top-color:var(--muted)}
+.result-symbol{display:block;color:var(--gold);font:3.6rem/1 "Segoe UI Symbol",system-ui;margin-bottom:10px}
+.loss .result-symbol{color:var(--red)}.draw .result-symbol{color:var(--muted)}
+.result-content h2{font-size:clamp(2rem,8vw,3rem);line-height:1;margin:0 0 9px}
+.result-reason{color:var(--paper);font-size:1.02rem;margin-bottom:12px}
+.result-score{font:700 1.02rem var(--mono);color:var(--gold);margin-bottom:16px}
+.result-winner{display:block;color:var(--muted);font:600 .8rem system-ui;margin-top:5px}
+.result-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px}
+.result-actions .link{margin:0 5px}

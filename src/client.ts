@@ -1,5 +1,5 @@
 import './style.css'
-import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,type Action,type Side,type Kind} from './rules.ts'
+import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,type Action,type Side,type Kind,type Piece} from './rules.ts'
 import {command,makeMatch,expire,remaining,presets,type Match,type Control,type Command} from './match.ts'
 import {pool,deviation,type Rating} from './rating.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
@@ -78,6 +78,7 @@ let difficulty:Difficulty='tactical'
 let human:Side='white'
 let botAgent:Worker|null=null
 let lessonTimer=0
+let resultTimer=0
 let choice=3, flexible=true, queue:({rated:boolean;flexible:boolean}&Control)|null=null, queueTimer=0, generation=0, rated=false
 let names={white:'White',black:'Black'}
 let past:Match[]=[], future:Match[]=[], review:number|null=null, seed=initial(), lesson=0, promotion:Action[]=[]
@@ -177,10 +178,10 @@ function game(){
   const history=v.log.map(e=>{
     const x=e.event
     if(!x)return e.result?'<li>'+safe(e.result.reason)+'</li>':''
-    const annotations=[x.roll?'🎲 '+x.roll+' · '+moodNames[x.mood!]:x.mood==='bloodlust'?'Bloodlust activated':'',x.capture?.side===x.side?'Friendly capture':'',...x.vanished.map(p=>name(p.square)+' lost to remorse')].filter(Boolean)
+    const annotations=[x.roll?'🎲 '+x.roll+' · '+moodNames[x.mood!]:x.mood==='bloodlust'?'Bloodlust activated':'',x.capture?.side===x.side?'Friendly capture':'',...x.vanished.map(p=>cap(p.side)+' '+labels[p.kind].toLowerCase()+' on '+name(p.square)+' self-captured')].filter(Boolean)
     return tab==='Events'&&!annotations.length&&x.action.type!=='absolve'?'':'<li><span>'+x.turn+' '+(x.side==='white'?'○':'●')+'</span><div><b>'+safe(x.text)+'</b>'+annotations.map(a=>'<small>'+safe(a)+'</small>').join('')+'</div></li>'
   }).join('')
-  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?difficulties[difficulty].name.toUpperCase()+' BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel absolution':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status)+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
+  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?difficulties[difficulty].name.toUpperCase()+' BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel absolution':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status)+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
 function render(){
   const focused=document.activeElement instanceof HTMLElement&&document.activeElement.matches('[data-square]')
@@ -196,7 +197,7 @@ function render(){
 function tell(s:string){status=s;const el=$('#status');if(el)el.textContent=s}
 function tick(){
   if(!m||['home','account'].includes(mode))return
-  if(mode!=='online'&&review===null){const next=expire(m,Date.now());if(next!==m){m=next;render();return}}
+  if(mode!=='online'&&review===null){const next=expire(m,Date.now());if(next!==m){m=next;render();scheduleResult(next);return}}
   const v=view()
   for(const side of ['white','black'] as const){
     const node=$('#clock-'+side)
@@ -210,8 +211,33 @@ setInterval(tick,250)
 function modal(html:string,kind=''){
   const d=$<HTMLDialogElement>('#modal')!
   d.dataset.kind=kind
+  d.removeAttribute('aria-labelledby')
   d.innerHTML='<form method="dialog" class="close"><button aria-label="Close">×</button></form>'+html
   if(!d.open)d.showModal()
+}
+function showResult(){
+  if(!m?.game.result||mode==='home'||mode==='account')return
+  const {winner,reason}=m.game.result
+  const perspective=mode==='bot'?human:mode==='online'?seat:null
+  const outcome=!winner?'draw':perspective&&winner!==perspective?'loss':'win'
+  const title=!winner?'Draw':perspective?winner===perspective?'You win':'You lose':cap(winner)+' wins'
+  const score=!winner?'½ – ½':winner==='white'?'1 – 0':'0 – 1'
+  const winnerText=winner&&perspective?'<span class="result-winner">'+cap(winner)+' wins</span>':''
+  const again=mode==='online'?(seat?button('rematch','Rematch','primary'):''):button('restart','Play again','primary')
+  modal('<section class="result-content '+outcome+'" aria-labelledby="result-title">'+
+    '<span class="result-symbol" aria-hidden="true">'+(outcome==='win'?'♛':outcome==='loss'?'♚':'½')+'</span>'+
+    '<h2 id="result-title">'+title+'</h2><p class="result-reason">'+safe(reason)+'</p>'+
+    '<p class="result-score" aria-label="White–Black score">'+score+winnerText+'</p>'+
+    '<div class="result-actions">'+again+(m.log.length?button('review-result','Review game'):'')+
+    button('home','Back to lobby','link')+'</div></section>','result')
+  $('#modal')?.setAttribute('aria-labelledby','result-title')
+}
+function scheduleResult(match:Match,delay=0){
+  if(!match.game.result||review!==null)return
+  clearTimeout(resultTimer)
+  resultTimer=window.setTimeout(()=>{
+    if(m===match&&review===null)showResult()
+  },delay)
 }
 function settings(){
   const checks=Object.entries({yells:'Capture yells',diceSound:'Dice sounds',uiSound:'Move sounds',diceMotion:'Dice animation',moodMotion:'Piece mood animation',ads:'Sponsor banner',last:'Last move highlight',drag:'Drag pieces',shake:'Screen shake',flash:'Impact flash',motion:'Reduced motion',crt:'Scanlines',coords:'Coordinates',hints:'Move hints',autoFlip:'Auto-flip local board',confirm:'Confirm friendly captures'})
@@ -232,6 +258,7 @@ function clocksDialog(){
 }
 function closeRoom(){
   id=''
+  clearTimeout(resultTimer)
   botAgent?.terminate();botAgent=null;clearTimeout(lessonTimer)
   if(socket){socket.onclose=null;socket.close();socket=null}
 }
@@ -265,12 +292,19 @@ async function sync(){
 function apply(data:Snapshot){
   if(m&&data.match.version<m.version)return
   const first=!m
+  const hadResult=Boolean(m?.game.result)
   const previousLog=m?.log.length??0
   const changed=first||m?.version!==data.match.version||seat!==data.seat
   if(changed)m=data.match
   offset=data.now-Date.now();info=data.room;seat=data.seat
   if(first){flipped=seat==='black';soundVersion=data.match.version;seed=initial(data.match.game.rulesVersion)}
-  if(changed){status='';render();if(!first&&review===null&&data.match.log.length>previousLog)effects(data.match);const node=$('#log');if(node&&review===null)node.scrollTop=node.scrollHeight}
+  if(changed){
+    status='';render()
+    const delay=!first&&review===null&&data.match.log.length>previousLog?effects(data.match):0
+    if(!hadResult)scheduleResult(data.match,delay)
+    const node=$('#log')
+    if(node&&review===null)node.scrollTop=node.scrollHeight
+  }
 }
 function wire(room:string){
   if(id!==room)return
@@ -323,11 +357,44 @@ async function cancel(){
   queue=null;generation++;clearTimeout(queueTimer)
   if(ticket){await api('queue',{...ticket,cancel:true}).catch(()=>{});if(mode==='home'){status='';render()}}
 }
-function effects(match:Match){
-  if(match.version<=soundVersion)return
+function animateVanished(pieces:readonly Piece[]):number{
+  if(!pieces.length||prefs.motion||prefs.speed==='off')return 0
+  const duration=prefs.speed==='fast'?320:620
+  for(const piece of pieces){
+    const tile=$('[data-square="'+piece.square+'"]')
+    if(!tile)continue
+    const marker=document.createElement('span')
+    marker.className='self-capture'
+    marker.setAttribute('aria-hidden','true')
+    marker.innerHTML='<span class="piece '+piece.side+'">'+art(piece.kind,piece.side)+'</span>'
+    tile.appendChild(marker)
+    const collapse=marker.animate([
+      {transform:'translateX(0) scale(1)',opacity:1},
+      {transform:'translateX(-5%) rotate(-5deg) scale(1.03)',opacity:1,offset:.19},
+      {transform:'translateX(5%) rotate(5deg) scale(1.03)',opacity:1,offset:.34},
+      {transform:'translateY(22%) scale(.70,.40)',opacity:.72,offset:.60},
+      {transform:'translateY(35%) scale(.12,.07)',opacity:0},
+    ],{duration,easing:'ease-in-out',fill:'forwards'})
+    void collapse.finished.then(()=>marker.remove(),()=>marker.remove())
+    for(const [dx,dy] of [[-26,-18],[-16,-29],[0,-32],[15,-26],[26,-17],[11,8],[-12,8]]){
+      const dust=document.createElement('i')
+      dust.className='remorse-ash'
+      dust.setAttribute('aria-hidden','true')
+      tile.appendChild(dust)
+      const scatter=dust.animate([{transform:'translate(-50%,-50%) scale(1)',opacity:.86},
+        {transform:'translate(calc(-50% + '+dx+'px),calc(-50% + '+dy+'px)) scale(.22)',opacity:0}],
+        {delay:duration*.4,duration:duration*.58,fill:'both',easing:'ease-out'})
+      void scatter.finished.then(()=>dust.remove(),()=>dust.remove())
+    }
+  }
+  return duration+35
+}
+function effects(match:Match):number{
+  if(match.version<=soundVersion)return 0
   soundVersion=match.version
   const e=match.log.at(-1)?.event
-  if(!e)return
+  if(!e)return 0
+  const vanishedDelay=animateVanished(e.vanished)
   function tone(hz:number,down:number,duration:number,delay:number,wave:OscillatorType){
     if(!audio||audio.state!=='running'||!prefs.volume)return
     const time=audio.currentTime+delay, oscillator=audio.createOscillator(), gain=audio.createGain()
@@ -338,7 +405,8 @@ function effects(match:Match){
   if(prefs.uiSound&&!e.capture)tone(200,85,.08,0,'triangle')
   if(e.capture&&prefs.yells){tone(520,95,.26,0,'sawtooth');tone(770,210,.22,0,'triangle')}
   if(e.capture&&prefs.diceSound)for(let i=0;i<3;i++)tone(300+i*90,100,.05,i*.055,'square')
-  if(prefs.motion||prefs.speed==='off'||e.action.type==='end')return
+  if(e.vanished.length&&prefs.uiSound)tone(165,48,.30,.10,'triangle')
+  if(prefs.motion||prefs.speed==='off'||e.action.type==='end')return vanishedDelay
   const duration=prefs.speed==='fast'?145:350
   const tile=$('[data-square="'+e.action.to+'"]')
   tile?.querySelector('.piece')?.animate([{transform:'translateY(-10%) scale(1.12)'},{transform:'none'}],{duration})
@@ -391,17 +459,19 @@ function effects(match:Match){
     }
   }
   if(e.action.type==='absolve')tile?.animate([{filter:'brightness(1.7)'},{filter:'none'}],{duration})
-  if(!e.capture)return
+  if(!e.capture)return vanishedDelay
+  const delay=Math.max(vanishedDelay,prefs.diceMotion?(prefs.speed==='fast'?265:610):duration)
   if(prefs.shake) $('.board')?.animate([{transform:'translateX(-3px)'},{transform:'translateX(3px)'},{transform:'none'}],{duration})
   if(prefs.flash)tile?.animate([{filter:'brightness(1.4)'},{filter:'none'}],{duration:160})
   const layer=$('#particles'), rect=tile?.getBoundingClientRect(), origin=layer?.getBoundingClientRect()
-  if(!layer||!rect||!origin||prefs.blood==='off')return
+  if(!layer||!rect||!origin||prefs.blood==='off')return delay
   for(let i=0;i<(prefs.blood==='full'?20:8);i++){
     const pixel=document.createElement('i')
     pixel.style.left=(rect.x-origin.x+rect.width/2)+'px';pixel.style.top=(rect.y-origin.y+rect.height/2)+'px'
     layer.appendChild(pixel)
     void pixel.animate([{opacity:1},{transform:'translate('+((Math.random()-.5)*104)+'px,'+((Math.random()-.4)*100)+'px)',opacity:0}],{duration:duration+160}).finished.then(()=>pixel.remove(),()=>pixel.remove())
   }
+  return delay
 }
 function offlineStep(side:Side,action:Command,roll?:()=>number){
   if(!m)return false
@@ -409,7 +479,7 @@ function offlineStep(side:Side,action:Command,roll?:()=>number){
   if(!next){tell('That action is unavailable.');return false}
   past.push(m);future=[];m=next
   if(mode==='local'&&prefs.autoFlip)flipped=m.game.side==='black'
-  status='';render();effects(next);return true
+  status='';render();scheduleResult(next,effects(next));return true
 }
 function bot(){
   if(mode!=='bot'||!m||m.game.side===human||m.game.result)return
@@ -615,6 +685,9 @@ async function handle(action:string){
     case 'link-email':linkEmail();return
     case 'passkey-login':await passkey('login');return
     case 'restart':local(mode,m?.control);return
+    case 'result':showResult();return
+    case 'review-result':
+      review=Math.max(0,(m?.log.length??1)-1);selected=null;absolve=false;tab='Moves';render();return
     case 'queue':await search();return
     case 'cancel':await cancel();return
     case 'friend':{
@@ -646,7 +719,7 @@ async function handle(action:string){
     case 'absolve':absolve=!absolve;status=absolve?'Choose a neighboring piece to absolve.':'';break
     case 'resign':modal('<h2>Resign this game?</h2><button class="primary" id="confirm">Resign</button>');$('#confirm')!.onclick=()=>{$<HTMLDialogElement>('#modal')?.close();void send({type:'resign'})};return
     case 'end':case 'offer':case 'accept':case 'decline':await send({type:action});return
-    case 'undo':if(m&&past.length){future.push(m);m={...past.pop()!,start:Date.now()};review=null;selected=null}break
+    case 'undo':if(m&&past.length){clearTimeout(resultTimer);future.push(m);m={...past.pop()!,start:Date.now()};review=null;selected=null}break
     case 'redo':if(m&&future.length){past.push(m);const next=future.pop()!;m={...next,start:next.game.result?0:Date.now()};review=null;selected=null}break
     case 'first':review=0;selected=null;break
     case 'prev':review=Math.max(0,(review??m!.log.length)-1);selected=null;break
