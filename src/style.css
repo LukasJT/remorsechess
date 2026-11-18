@@ -96,7 +96,7 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .guide-header{display:flex;gap:22px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding:23px 25px;background:#30232b}
 .guide-header h2{color:var(--gold);font-size:clamp(1.55rem,4vw,2.15rem);line-height:1.12;margin:0 0 .55rem}
 .guide-header p,.guide-strategy p{max-width:64ch;margin-bottom:0;font-size:1rem}
-.guide-header button{flex:0 0 auto}
+.guide-links{display:flex;flex:0 0 auto;flex-wrap:wrap;align-items:center;gap:.8rem;font-weight:700}
 .home-guide h3{margin:0 0 .55rem;color:#ffd99d;font-size:1.22rem;line-height:1.25}
 .guide-dice{padding:20px 25px;border-bottom:1px solid var(--line)}
 .guide-dice dl{margin:0;display:grid;grid-template-columns:1fr 1fr;gap:0 24px}
@@ -119,9 +119,10 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .guide-board>span:nth-child(even){background:#e0b780}
 .guide-board i{width:66%;aspect-ratio:1;border-radius:50%;border:2px solid #a6f7a2;box-shadow:0 0 0 1px #153526}
 .guide-play{margin:0;border-top:1px solid var(--line);padding:14px 25px;color:#e6c9ac;background:#30232b}
+.guide-credit{margin:0;padding:0 25px 14px;color:var(--muted);background:#30232b}
 @media(max-width:620px){
   .guide-header{align-items:flex-start;flex-direction:column;gap:12px}
-  .guide-header,.guide-dice,.guide-strategy,.guide-play{padding-left:15px;padding-right:15px}
+  .guide-header,.guide-dice,.guide-strategy,.guide-play,.guide-credit{padding-left:15px;padding-right:15px}
   .guide-dice dl,.guide-strategy{grid-template-columns:1fr}
   .guide-roll:nth-last-child(2){border-bottom:1px solid #493943}
   .guide-heal{grid-template-columns:1fr;gap:13px}

@@ -9,7 +9,10 @@ export const homeGuide = `
       <h2 id="how-to-play-title">How to play Remorse Chess</h2>
       <p>Start with normal chess. The first time each piece captures, its die roll changes what it can do. Each piece rolls just once, even if it’s healed or promoted.</p>
     </div>
-    <button class="primary" data-do="tutorial">Try the tutorial</button>
+    <div class="guide-links">
+      <button class="primary" data-do="tutorial">Try the tutorial</button>
+      <a href="/rules/">Read the full rules</a>
+    </div>
   </header>
 
   <div class="guide-dice">
@@ -52,5 +55,6 @@ export const homeGuide = `
     </section>
   </div>
   <p class="guide-play"><b>Ready to play?</b> Use <b>Quick match</b> for a casual game, <b>Play a friend</b> for an invite link, or <b>Practice vs bot</b> to try the rules on your own.</p>
+  <p class="guide-credit">Original variant by Bardelo Bardalini. <a href="/history/">Read the history and watch the original TikTok</a>.</p>
 </section>
 `

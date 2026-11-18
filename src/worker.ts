@@ -399,7 +399,13 @@ export default {
       return Response.redirect(url.href,301)
     }
     if(url.pathname.startsWith('/banner/'))return banner(url.pathname.slice(8))
-    if(!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req)
+    if(!url.pathname.startsWith('/api/')){
+      const asset=await env.ASSETS.fetch(req)
+      if(url.pathname!=='/' || !url.searchParams.has('game')) return asset
+      const matchPage=new Response(asset.body,asset)
+      matchPage.headers.set('X-Robots-Tag','noindex')
+      return matchPage
+    }
     const endpoint=url.pathname.slice(5)
     if(endpoint==='api' || endpoint.length>120) return problem('Not found',404)
     const ip=req.headers.get('CF-Connecting-IP')
