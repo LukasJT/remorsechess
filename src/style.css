@@ -50,5 +50,44 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .result-winner{display:block;color:var(--muted);font:600 .8rem system-ui;margin-top:5px}
 .result-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px}
 .result-actions .link{margin:0 5px}
-.sq.heal-target::after{content:"✧";position:absolute;top:2px;right:3px;color:#173626;font:700 clamp(.72rem,2.8cqw,1rem)/1 system-ui;text-shadow:0 0 2px #e0ffbc;pointer-events:none}
-.sq.heal-target{box-shadow:inset 0 0 0 3px #39734b}
+.sq.heal-target::after{
+  content:"";position:absolute;inset:8%;border-radius:50%;z-index:1;
+  border:clamp(2px,.66cqw,4px) solid #a6f7a2;
+  box-shadow:0 0 0 2px #153526,inset 0 0 0 1px #153526;
+  pointer-events:none
+}
+.sq.heal-target:hover::after,.sq.heal-target:focus-visible::after{
+  background:#9af3a03b;border-color:#e1ffba
+}
+.sq.heal-target .piece{z-index:2}
+.result-emblem{position:relative;isolation:isolate;width:5rem;height:5rem;display:grid;place-items:center;margin:0 auto 12px;border:1px solid #77583b;background:#35291e}
+.win .result-emblem{background:#4a3222;border-color:#dbab60;box-shadow:inset 0 0 0 3px #281f22}
+.loss .result-emblem{background:#392029;border-color:#ac5964}
+.draw .result-emblem{background:#32282f;border-color:#866f7c}
+.result-symbol{position:relative;z-index:1;margin:0}
+.victory-celebrate{--victory-duration:860ms;isolation:isolate}
+.victory-fast{--victory-duration:420ms}
+.victory-celebrate .result-emblem{animation:victory-arrive var(--victory-duration) cubic-bezier(.18,.72,.25,1.2) both}
+.victory-burst{position:absolute;inset:0;z-index:2;pointer-events:none}
+.victory-burst i{position:absolute;left:50%;top:50%;width:7px;height:7px;background:var(--spark);box-shadow:0 0 8px var(--spark);animation:victory-spark var(--victory-duration) ease-out both}
+.victory-celebrate h2{animation:victory-title var(--victory-duration) ease-out both}
+@keyframes victory-arrive{
+  0%{transform:translateY(-19px) scale(.68);opacity:.2}
+  39%{transform:translateY(4px) scale(1.15);opacity:1}
+  65%{transform:translateY(-3px) scale(.98)}
+  100%{transform:none}
+}
+@keyframes victory-spark{
+  0%,25%{transform:translate(-50%,-50%) rotate(0deg) scale(0);opacity:0}
+  48%{opacity:1}
+  100%{transform:translate(var(--x),var(--y)) rotate(var(--spin)) scale(.65);opacity:0}
+}
+@keyframes victory-title{
+  0%,15%{color:var(--gold);transform:translateY(8px);opacity:.4}
+  56%{color:#ffe3a4;transform:translateY(-2px);opacity:1}
+  100%{transform:none}
+}
+@media(prefers-reduced-motion:reduce){
+  .victory-celebrate .result-emblem,.victory-celebrate h2,.victory-burst i{animation:none}
+  .victory-burst{display:none}
+}
