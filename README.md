@@ -56,7 +56,7 @@ Check `/api/health` over HTTPS. Confirm WebSocket updates and reconnect behavior
 
 ### Ranked accounts
 
-Passkey registration and sign-in are available on the production apex and localhost. Users register a unique public handle and sign in with a device or password manager. A synced passkey is needed to carry the account to a new device. GitHub sign-in remains an optional legacy configuration, with its existing Worker secrets and callback. Email sign-in activates when the Worker holds a domain-scoped Resend sending key in the secret `RESEND_API_KEY`. Resend must verify `auth.remorsechess.com`, the sender domain. Existing players can add email sign-in from their profile without changing accounts. Supabase is not used.
+Passkey registration and sign-in are available on the production apex and localhost. Users register a unique public handle and sign in with a device or password manager. A synced passkey is needed to carry the account to a new device. GitHub sign-in remains an optional legacy configuration, with its existing Worker secrets and callback. Email sign-in activates when the Worker holds a domain-scoped Resend sending key in the secret `RESEND_API_KEY`. Resend must verify `auth.remorsechess.com`, the sender domain. Existing players can add email sign-in from their profile without changing accounts. Email links can be opened on another device and ask for confirmation before signing in. Supabase is not used.
 
 `node tests/ranked.mjs` verifies passkey registration and sign-in with ephemeral keys, a rated pairing, and exactly one rating update per player. It defaults to local development.
 

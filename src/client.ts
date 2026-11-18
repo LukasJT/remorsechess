@@ -426,7 +426,7 @@ function emailForm(link:boolean){
   return '<form id="email-start" data-link="'+link+'"><label>Email address <input type="email" name="email" autocomplete="email" maxlength="254" required></label> <button class="primary">Email me a sign-in link</button><p id="email-status" role="status"></p></form>'
 }
 function linkEmail(){
-  modal('<h2>Add email sign-in</h2><p>Use your email to sign back into this account and keep your rating. Open the verification link in this browser.</p>'+emailForm(true))
+  modal('<h2>Add email sign-in</h2><p>Use your email to sign back into this account and keep your rating. Open the verification link on any device.</p>'+emailForm(true))
 }
 async function sendEmailLink(form:HTMLFormElement){
   const statusNode=form.querySelector<HTMLElement>('#email-status')!
@@ -441,8 +441,24 @@ async function sendEmailLink(form:HTMLFormElement){
   }catch(e){statusNode.textContent=e instanceof Error?e.message:'Couldn’t send the link.'}
   finally{submit.disabled=false}
 }
-function emailRedeem(){
-  modal('<h2>Continue with email</h2><p>Continue to sign in or choose a player name for your new account.</p>'+button('email-confirm','Continue','primary')+'<p id="email-status" role="status"></p>')
+async function emailRedeem(){
+  modal('<h2>Continue with email</h2><p id="email-status" role="status">Checking your link…</p>')
+  const pending=$('#email-status')
+  if(!pending)return
+  try{
+    await login()
+    const details=await api<{kind:'sign-in'|'link';accountName?:string;switchRequired?:boolean}>('auth/email/inspect',{code:emailCode})
+    if(!pending.isConnected||!$<HTMLDialogElement>('#modal')?.open)return
+    if(details.kind==='link'){
+      const name=safe(details.accountName)
+      const text=details.switchRequired
+        ?'<p>This link is for <b>'+name+'</b>. Sign out of the current account and reopen this email link to continue.</p>'
+        :'<p>Add this email to <b>'+name+'</b> and sign in on this device. Continue only if this is your Remorse Chess account.</p>'
+      modal('<h2>Verify your email</h2>'+text+
+        (details.switchRequired?'':button('email-confirm','Verify and sign in','primary'))+'<p id="email-status" role="status"></p>')
+    }else modal('<h2>Continue with email</h2><p>Continue to sign in or choose a player name for your new account.</p>'+
+      button('email-confirm','Continue','primary')+'<p id="email-status" role="status"></p>')
+  }catch(e){pending.textContent=e instanceof Error?e.message:'Couldn’t open the link.'}
 }
 async function finishEmail(name?:string){
   const statusNode=$('#email-status')
@@ -718,6 +734,6 @@ route()
 if(link&&/^[a-f0-9]{64}$/.test(link)){
   emailCode=link
   history.replaceState({},'',location.pathname+location.search)
-  emailRedeem()
+  void emailRedeem()
 }
 void login().then(()=>{if(mode==='home'&&!queue&&!$<HTMLDialogElement>('#modal')?.open)render()}).catch(()=>{})

@@ -243,18 +243,29 @@ export class Lobby extends DurableObject<Env> {
       await txn.delete('email-link/'+hash)
     })
   }
+  async inspectEmail(hash:string,viewer:Identity|undefined){
+    const link=await this.ctx.storage.get<EmailRequest>('email-link/'+hash)
+    if(!link||link.expires<=Date.now())return {expired:true}
+    if(!link.owner)return {kind:'sign-in'}
+    const ownerName=link.ownerName??(viewer?.id===link.owner?viewer.name:undefined)
+    if(!ownerName)return {legacy:true}
+    return {kind:'link',accountName:ownerName,switchRequired:Boolean(viewer&&viewer.id!==link.owner)}
+  }
   async redeemEmail(hash:string,handle:string|null,owner:Identity|undefined,sessionID:string){
     return this.ctx.storage.transaction(async txn=>{
       const key='email-link/'+hash
       const link=await txn.get<EmailRequest>(key)
-      if(!link||link.expires<Date.now()){if(link)await txn.delete(key);return 'expired'}
-      if(link.owner&&link.owner!==owner?.id)return 'original-account'
+      if(!link||link.expires<=Date.now()){if(link)await txn.delete(key);return 'expired'}
       const index='email-account/'+link.mailbox
       let user=await txn.get<Identity>(index)
-      if(link.owner&&owner){
-        if(user&&user.id!==owner.id)return 'linked'
-        user=owner
-      } else if(owner&&owner.id!==user?.id)return 'sign-out'
+      if(link.owner){
+        // A linking request comes from a signed-in account. The emailed token then proves mailbox access.
+        if(owner&&owner.id!==link.owner)return 'sign-out'
+        const target=owner??(link.ownerName?{id:link.owner,name:link.ownerName,account:true}:undefined)
+        if(!target)return 'legacy'
+        if(user&&user.id!==target.id)return 'linked'
+        user=target
+      }else if(owner&&owner.id!==user?.id)return 'sign-out'
       if(!user){
         if(!handle)return 'name'
         const handleKey='handle/'+handle.toLowerCase()
@@ -503,11 +514,11 @@ export default {
         const code=token()+token()
         const hash=await digest(code)
         const mailbox=await digest(email)
-        const reserved=await store.reserveEmail({hash,mailbox,owner:profile?.id,expires:Date.now()+900_000})
+        const reserved=await store.reserveEmail({hash,mailbox,owner:profile?.id,ownerName:profile?.name,expires:Date.now()+900_000})
         if(reserved==='cooldown')return problem('Wait one minute before requesting a new link.',429)
         if(reserved==='quota')return problem('Email sign-in is at its daily limit. Try again tomorrow.',429)
         const target=url.origin+'/#email='+code
-        const sent=await sendSignIn(env.RESEND_API_KEY!,email,target,hash,linking).catch(()=>null)
+        const sent=await sendSignIn(env.RESEND_API_KEY!,email,target,hash,profile?.name).catch(()=>null)
         if(!sent?.ok){
           console.warn('Sign-in email could not be accepted',{status:sent?.status??0})
           await store.discardEmail(hash,mailbox)
@@ -515,16 +526,23 @@ export default {
         }
         return json({ok:true})
       }
-      if(endpoint==='auth/email/finish'){
+      if(endpoint==='auth/email/inspect'||endpoint==='auth/email/finish'){
         const code=input.code
         if(typeof code!=='string'||!/^([a-f0-9]{64})$/.test(code))return problem('This sign-in link is invalid.',400)
+        const hash=await digest(code)
+        if(endpoint==='auth/email/inspect'){
+          const details=await store.inspectEmail(hash,profile)
+          if(details.expired)return problem('This sign-in link expired or was already used. Request a new link.',403)
+          if(details.legacy)return problem('Request a new link to verify your email on another device.',403)
+          return json(details)
+        }
         const handle=accountName(input.name)
         if(input.name!==undefined&&!handle)return problem('Use 3–20 letters, numbers, underscores or hyphens.')
         const sessionID=token()
-        const outcome=await store.redeemEmail(await digest(code),handle,profile,sessionID)
+        const outcome=await store.redeemEmail(hash,handle,profile,sessionID)
         if(outcome==='name')return json({needsName:true})
         if(outcome==='taken')return problem('That player name is already in use.',409)
-        if(outcome==='original-account')return problem('Open the verification link in the browser where you’re signed in to the original account.',403)
+        if(outcome==='legacy')return problem('Request a new link to verify your email on another device.',403)
         if(outcome==='linked')return problem('This email is attached to another account.',409)
         if(outcome==='sign-out')return problem('Sign out of the current account before using this link.',409)
         if(outcome!=='ok')return problem('This sign-in link expired or was already used.',403)
