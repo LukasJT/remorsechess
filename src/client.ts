@@ -17,8 +17,36 @@ const pixels={
   k:['    #    ','   ###   ','    #    ',' ## # ## ','#########',' ####### ','  #####  ',' ####### ','#########'],
 }
 const sprites=new Map<string,string>()
+function classicPawn(side:Side){
+  const key='classic-pawn-'+side
+  if(!sprites.has(key)){
+    const canvas=document.createElement('canvas')
+    canvas.width=128;canvas.height=128
+    const context=canvas.getContext('2d')!
+    context.scale(2,2)
+    const outline=new Path2D('M24 23 C14 13 21 4 32 4 C43 4 50 13 40 23 L43 25 Q46 29 42 33 L39 34 C39 41 44 47 51 50 Q55 52 55 56 L55 59 L9 59 L9 56 Q9 52 13 50 C20 47 25 41 25 34 L22 33 Q18 29 21 25 Z')
+    const fill=context.createLinearGradient(22,8,40,60)
+    fill.addColorStop(0,side==='white'?'#fff5d3':'#644d67')
+    fill.addColorStop(1,side==='white'?'#e9bd81':'#332239')
+    context.lineJoin='round'
+    context.lineWidth=3
+    context.strokeStyle='#251925'
+    context.fillStyle=fill
+    context.fill(outline)
+    context.stroke(outline)
+    context.lineWidth=1.55
+    context.lineCap='round'
+    context.strokeStyle=side==='white'?'#fff7df':'#9c7a99'
+    context.stroke(new Path2D('M25 13 Q27 8 33 8 M23 29 H41 M14 54 H50'))
+    sprites.set(key,canvas.toDataURL())
+  }
+  return '<img class="classic-pawn" draggable="false" alt="" src="'+sprites.get(key)+'">'
+}
 function art(kind:Kind,side:Side){
-  if(prefs.pieces==='classic')return {p:'♟',n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'}[kind]
+  if(prefs.pieces==='classic'){
+    if(kind==='p')return classicPawn(side)
+    return {n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'}[kind]
+  }
   const key=kind+side
   if(!sprites.has(key)){
     const canvas=document.createElement('canvas')
