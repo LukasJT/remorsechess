@@ -66,7 +66,7 @@ function art(kind:Kind,side:Side){
 const dice=['⚀','⚁','⚂','⚃','⚄','⚅']
 const cap=(s:Side)=>s==='white'?'White':'Black'
 const grid=Array.from({length:64},(_,i)=>(7-Math.floor(i/8))*8+i%8)
-const rules='<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · Devastated</dt><dd>Frozen. A friendly bishop must absolve it within its owner’s next three turns.</dd><dt>2–3 · Guilt-ridden</dt><dd>Can move but cannot capture until absolved.</dd><dt>4–5 · Unaffected</dt><dd>Moves and captures normally.</dd><dt>6 · Psychopath</dt><dd>After capturing, move the same piece again or end the turn. At three captures, bloodlust makes it capture only, even friendly pieces.</dd></dl><p>A bishop must already be adjacent, including diagonally, and spend a turn using Absolve. An absolved piece never rolls again. A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.</p>'
+const rules='<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · Devastated</dt><dd>Frozen. A friendly bishop must absolve it within its owner’s next three turns.</dd><dt>2–3 · Guilt-ridden</dt><dd>Can move but cannot capture until absolved.</dd><dt>4–5 · Unaffected</dt><dd>Moves and captures normally.</dd><dt>6 · Psychopath</dt><dd>After capturing, move the same piece again or end the turn. At three captures, bloodlust makes it capture only, even friendly pieces.</dd></dl><p>Select a friendly bishop in any of the eight squares around a guilt-ridden or devastated piece, including the corners. Choose Heal (Absolve) and select the piece. Healing uses one turn. An absolved piece never rolls again. A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.</p>'
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:false,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
 type Snapshot={room:{white?:string;black?:string;open:boolean;rated:boolean;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
@@ -169,9 +169,10 @@ function game(){
   const actions=p?legal(g,p.square):[]
   const board=(flipped?grid.slice().reverse():grid).map((sq,i)=>{
     const man=at(g,sq),target=prefs.hints&&actions.some(a=>a.type===(absolve?'absolve':'move')&&a.to===sq)
+    const healer=canAct()&&actions.some(a=>a.type==='absolve'&&a.to===sq)
     const previous=prefs.last&&last?.action.type!=='end'&&[last?.action.from,last?.action.to].includes(sq)
-    const classes=[(file(sq)+rank(sq))%2?'light':'dark',selected===sq?'selected':'',target?(man?'target take':'target'):'',previous?'last':'',man?.kind==='k'&&inCheck(g,man.side)?'check':''].join(' ')
-    return '<button tabindex="'+(sq===focus?0:-1)+'" aria-label="'+name(sq)+' '+(man?man.side+' '+labels[man.kind]+(man.roll?', '+moodNames[man.mood]:''):'empty')+'" class="sq '+classes+'" data-square="'+sq+'">'+(prefs.coords&&i%8===0?'<span class="rank">'+(rank(sq)+1)+'</span>':'')+(prefs.coords&&i>=56?'<span class="file">'+'abcdefgh'[file(sq)]+'</span>':'')+(man?'<span draggable="'+prefs.drag+'" class="piece '+man.side+' '+man.mood+'">'+art(man.kind,man.side)+(man.roll?'<b class="badge '+man.mood+'">'+(man.rescue||{normal:'·',devastated:'!',guilty:'×',psychopath:'+',bloodlust:'▲'}[man.mood])+'</b>':'')+'</span>':'')+'</button>'
+    const classes=[(file(sq)+rank(sq))%2?'light':'dark',selected===sq?'selected':'',target&&!healer?(man?'target take':'target'):'',healer?'heal-target':'',previous?'last':'',man?.kind==='k'&&inCheck(g,man.side)?'check':''].join(' ')
+    return '<button tabindex="'+(sq===focus?0:-1)+'" aria-label="'+name(sq)+' '+(man?man.side+' '+labels[man.kind]+(man.roll?', '+moodNames[man.mood]:'')+(healer?', can heal':''):'empty')+'" class="sq '+classes+'" data-square="'+sq+'">'+(prefs.coords&&i%8===0?'<span class="rank">'+(rank(sq)+1)+'</span>':'')+(prefs.coords&&i>=56?'<span class="file">'+'abcdefgh'[file(sq)]+'</span>':'')+(man?'<span draggable="'+prefs.drag+'" class="piece '+man.side+' '+man.mood+'">'+art(man.kind,man.side)+(man.roll?'<b class="badge '+man.mood+'">'+(man.rescue||{normal:'·',devastated:'!',guilty:'×',psychopath:'+',bloodlust:'▲'}[man.mood])+'</b>':'')+'</span>':'')+'</button>'
   }).join('')
   const canTakeKing=g.bonus!==null&&legal(g).some(action=>action.type==='move'&&at(g,action.to)?.kind==='k')
   const headline=g.result?(g.result.winner?cap(g.result.winner)+' wins':'Draw')+' · '+g.result.reason:!v.start&&review===null?'Waiting for an opponent':g.bonus!==null?cap(g.side)+' · '+(canTakeKing?'King capture available':'Bonus move'):cap(g.side)+' to move'
@@ -181,7 +182,7 @@ function game(){
     const annotations=[x.roll?'🎲 '+x.roll+' · '+moodNames[x.mood!]:x.mood==='bloodlust'?'Bloodlust activated':'',x.capture?.side===x.side?'Friendly capture':'',...x.vanished.map(p=>cap(p.side)+' '+labels[p.kind].toLowerCase()+' on '+name(p.square)+' self-captured')].filter(Boolean)
     return tab==='Events'&&!annotations.length&&x.action.type!=='absolve'?'':'<li><span>'+x.turn+' '+(x.side==='white'?'○':'●')+'</span><div><b>'+safe(x.text)+'</b>'+annotations.map(a=>'<small>'+safe(a)+'</small>').join('')+'</div></li>'
   }).join('')
-  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?difficulties[difficulty].name.toUpperCase()+' BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel absolution':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status)+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
+  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?difficulties[difficulty].name.toUpperCase()+' BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel healing':'✧ Heal (Absolve)',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status)+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
 function render(){
   const focused=document.activeElement instanceof HTMLElement&&document.activeElement.matches('[data-square]')
@@ -615,7 +616,7 @@ async function send(action:Command){
   }
   if(mode==='tutorial'&&lesson<3){
     if(lesson===0&&(action.type!=='move'||action.from!==10||action.to!==27)){tell('Capture the pawn on d4 with the knight on c2.');return}
-    if(lesson===1&&(action.type!=='absolve'||action.from!==18||action.to!==27)){tell('Select the bishop on c3, choose Absolve, then select d4.');return}
+    if(lesson===1&&(action.type!=='absolve'||action.from!==18||action.to!==27)){tell('Select the bishop on c3, choose Heal, then select d4.');return}
   }
   const side=action.type==='accept'||action.type==='decline'?opposite(m.offer??m.game.side):m.game.side
   if(!offlineStep(side,action,mode==='tutorial'?()=>1:undefined))return
@@ -627,7 +628,7 @@ async function send(action:Command){
       lessonTimer=window.setTimeout(()=>{
         if(mode!=='tutorial'||lesson!==1)return
         offlineStep('black',{type:'move',from:48,to:40})
-        tell('Select the bishop on c3, choose Absolve, then select d4.')
+        tell('Select the bishop on c3, choose Heal, then select d4.')
       },prefs.motion||prefs.speed==='off'?250:2000)
     }
     else if(lesson===1){lesson=3;modal('<h2>Absolution complete</h2><p>The knight can move and capture again. Its first roll still counts, so it will never roll again.</p>'+button('local','Play a full game','primary'))}
@@ -642,7 +643,19 @@ function confirmAction(action:Action){
 }
 function square(sq:number){
   if(!m||!canAct())return
-  const options=selected===null?[]:legal(m.game,selected).filter(a=>a.type!=='end'&&a.type===(absolve?'absolve':'move')&&a.to===sq)
+  const choices=selected===null?[]:legal(m.game,selected).filter(a=>a.type!=='end'&&a.to===sq)
+  const heal=choices.find(a=>a.type==='absolve')
+  if(heal){
+    if(absolve){void send(heal);return}
+    const kind=labels[at(m.game,sq)!.kind].toLowerCase()
+    modal('<h2>Heal the '+kind+' on '+name(sq)+'?</h2><p>The bishop stays in place. Healing uses this turn.</p>'+
+      '<div class="tools"><button class="primary" id="confirm-heal">Heal piece</button><button id="select-heal-target">Select piece instead</button></div>')
+    $('#confirm-heal')!.onclick=()=>{$<HTMLDialogElement>('#modal')?.close();void send(heal)}
+    $('#select-heal-target')!.onclick=()=>{$<HTMLDialogElement>('#modal')?.close();selected=sq;absolve=false;render()}
+    return
+  }
+  if(absolve){tell('Choose a highlighted piece to heal.');return}
+  const options=choices.filter(a=>a.type==='move')
   if(options.length>1){
     promotion=options
     modal('<h2>Promote pawn</h2><div class="tools">'+options.map((a,i)=>'<button data-promotion="'+i+'">'+labels[(a as {promotion:Kind}).promotion]+'</button>').join('')+'</div>')
@@ -716,7 +729,7 @@ async function handle(action:string){
       return
     }
     case 'flip':flipped=!flipped;break
-    case 'absolve':absolve=!absolve;status=absolve?'Choose a neighboring piece to absolve.':'';break
+    case 'absolve':absolve=!absolve;status=absolve?'Choose a highlighted piece to heal.':'';break
     case 'resign':modal('<h2>Resign this game?</h2><button class="primary" id="confirm">Resign</button>');$('#confirm')!.onclick=()=>{$<HTMLDialogElement>('#modal')?.close();void send({type:'resign'})};return
     case 'end':case 'offer':case 'accept':case 'decline':await send({type:action});return
     case 'undo':if(m&&past.length){clearTimeout(resultTimer);future.push(m);m={...past.pop()!,start:Date.now()};review=null;selected=null}break

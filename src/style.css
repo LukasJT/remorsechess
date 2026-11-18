@@ -50,3 +50,5 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .result-winner{display:block;color:var(--muted);font:600 .8rem system-ui;margin-top:5px}
 .result-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px}
 .result-actions .link{margin:0 5px}
+.sq.heal-target::after{content:"✧";position:absolute;top:2px;right:3px;color:#173626;font:700 clamp(.72rem,2.8cqw,1rem)/1 system-ui;text-shadow:0 0 2px #e0ffbc;pointer-events:none}
+.sq.heal-target{box-shadow:inset 0 0 0 3px #39734b}
