@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { command, compatibleClock, expire, makeMatch, quickClock, remaining, type Command, type Control, type Entry, type Match, type SearchClock } from './match.ts'
+import { command, compatibleClock, dailyControl, dailyDays, expire, makeMatch, quickClock, remaining, type Command, type Control, type DailyGame, type DailyLobby, type Entry, type Match, type SearchClock } from './match.ts'
 import { botRating, dailyRatedBotGames, defaultRating, deviation, pool, updateBotRating, updateRating, type Rating } from './rating.ts'
 import { CURRENT_RULES,type Side } from './rules.ts'
 import { chooseMove } from './bot.ts'
@@ -14,6 +14,7 @@ type Identity = { id:string; name:string; account:boolean }
 type Seats = Partial<Record<Side,Identity>>
 type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side }
 type Ticket = { owner:Identity; id:string; expires:number; clock:SearchClock; created:number; searchId?:string; cancelled?:boolean; bot?:Control }
+type DailyTicket = { owner:Identity; id:string; days:number; created:number; requestId:string; matched?:boolean }
 type PublicGame = { id:string; white:string; black:string; control:Control; rated:boolean }
 type Profile = { user:Identity; ratings:Record<string,Rating>; history:{id:string; result:string; pool:string; delta?:number}[] }
 type Final = { room:RoomInfo; reason:string; winner:Side|null }
@@ -26,6 +27,8 @@ const lobby = (env:Env) => env.LOBBY.getByName('global-v1')
 const room = (env:Env,id:string) => env.ROOMS.getByName(id)
 const oppositeSeat=(s:Side):Side=>s==='white'?'black':'white'
 const botWait=(rated:boolean)=>rated?20_000:8_000
+const dailyLifetime=14*86_400_000
+const dailyRoomKey=(player:string,id:string)=>'daily-room/'+player+'/'+id
 const seatOf = (info:RoomInfo,player:Identity):Side|null => info.seats.white?.id===player.id?'white':info.seats.black?.id===player.id?'black':null
 function parseControl(raw:Partial<Control>): Control|null {
   const {seconds,increment}=raw
@@ -56,6 +59,16 @@ export class Room extends DurableObject<Env> {
       await this.schedule(info,match)
     })
   }
+  async dailyGame(player:string):Promise<DailyGame|undefined>{
+    const info=await this.ctx.storage.get<RoomInfo>('room')
+    const match=await this.ctx.storage.get<Match>('match')
+    if(!info?.control.days||!match||expire(match,Date.now()).game.result)return
+    const side=info.seats.white?.id===player?'white':info.seats.black?.id===player?'black':null
+    if(!side||(!match.start&&info.created+dailyLifetime<=Date.now()))return
+    return {id:info.id,days:info.control.days,opponent:info.seats[oppositeSeat(side)]?.name,
+      waiting:!match.start,turn:Boolean(match.start&&match.game.side===side),
+      deadline:match.start?match.start+match.clock[match.game.side]:undefined}
+  }
   private async snapshot(player?:Identity) {
     const info=await this.ctx.storage.get<RoomInfo>('room')
     const match=await this.ctx.storage.get<Match>('match')
@@ -67,7 +80,7 @@ export class Room extends DurableObject<Env> {
   }
   private nextAlarm(info:RoomInfo,m:Match){
     if(m.game.result)return Date.now()+250
-    if(!m.start)return info.created+30*60_000
+    if(!m.start)return info.created+(info.control.days?dailyLifetime:30*60_000)
     const timeout=m.start+(m.control.seconds?m.clock[m.game.side]:24*60*60_000)
     return info.bot===m.game.side?Math.min(timeout,m.start+250):timeout
   }
@@ -98,6 +111,8 @@ export class Room extends DurableObject<Env> {
       const info=await this.ctx.storage.get<RoomInfo>('room')
       let match=await this.ctx.storage.get<Match>('match')
       if(!info || !match) return problem('Room not found',404)
+      if(info.control.days&&!match.start&&!match.game.result&&info.created+dailyLifetime<=Date.now())
+        return problem('This Daily invitation expired',410)
       const timed=expire(match,Date.now())
       if(timed!==match){ await this.save(info,timed); match=timed }
       const seat=seatOf(info,player)
@@ -109,6 +124,7 @@ export class Room extends DurableObject<Env> {
         return new Response(null,{status:101,webSocket:pair[0]})
       }
       if(action==='join' && req.method==='POST'){
+        if(info.control.days&&!player.account)return problem('Sign in to join this Daily game',401)
         if(!seat && info.open && (!info.seats.black || !info.seats.white) && !match.start && (!info.invited || info.invited===player.id)){
           info.seats[info.seats.white?'black':'white']=player
           info.open=false
@@ -134,7 +150,7 @@ export class Room extends DurableObject<Env> {
         await lobby(this.env).block(player.id,other.id)
         return json({blocked:true})
       } else if(action==='rematch' && req.method==='POST'){
-        if(info.bot || !seat || !match.game.result || !info.seats.white || !info.seats.black) return problem('Rematch is unavailable',409)
+        if(info.bot || info.control.days || !seat || !match.game.result || !info.seats.white || !info.seats.black) return problem('Rematch is unavailable',409)
         const existing=await this.ctx.storage.get<string>('rematch')
         if(existing) return json({id:existing})
         const nextId=token()
@@ -193,6 +209,96 @@ export class Room extends DurableObject<Env> {
 }
 
 export class Lobby extends DurableObject<Env> {
+  async fetch(req:Request){
+    const identity=req.headers.get('x-remorse-presence')
+    if(!identity||req.headers.get('upgrade')?.toLowerCase()!=='websocket')return problem('WebSocket required',426)
+    const pair=new WebSocketPair()
+    this.ctx.acceptWebSocket(pair[1],[identity])
+    pair[1].send(JSON.stringify({online:this.onlinePlayers()}))
+    await this.schedulePresence()
+    return new Response(null,{status:101,webSocket:pair[0]})
+  }
+  private presenceSockets(){
+    return this.ctx.getWebSockets().filter(socket=>socket.readyState===WebSocket.OPEN)
+  }
+  private onlinePlayers(sockets=this.presenceSockets()){
+    return new Set(sockets.map(socket=>this.ctx.getTags(socket)[0])).size
+  }
+  private async schedulePresence(){
+    if(await this.ctx.storage.getAlarm()===null)await this.ctx.storage.setAlarm(Date.now()+1000)
+  }
+  async alarm(){
+    const sockets=this.presenceSockets()
+    const update=JSON.stringify({online:this.onlinePlayers(sockets)})
+    for(const socket of sockets){
+      try{socket.send(update)}catch{socket.close(1011,'Reconnect')}
+    }
+  }
+  webSocketMessage(ws:WebSocket){ws.close(1008,'Receive-only connection')}
+  async webSocketClose(ws:WebSocket){
+    if(ws.readyState!==WebSocket.CLOSED)ws.close()
+    await this.schedulePresence()
+  }
+  async webSocketError(ws:WebSocket){await this.webSocketClose(ws)}
+  async registerDaily(player:string,id:string){
+    await this.ctx.storage.put(dailyRoomKey(player,id),id)
+  }
+  async daily(player:string):Promise<DailyLobby>{
+    const request=await this.ctx.storage.get<DailyTicket>('daily-search/'+player)
+    const keys=[...(await this.ctx.storage.list<string>({prefix:'daily-room/'+player+'/'})).values()]
+    const games:DailyGame[]=[]
+    const expired:string[]=[]
+    for(let i=0;i<keys.length;i+=5){
+      const batch=keys.slice(i,i+5)
+      const states=await Promise.all(batch.map(id=>room(this.env,id).dailyGame(player)))
+      states.forEach((game,j)=>{if(game)games.push(game);else expired.push(dailyRoomKey(player,batch[j]))})
+    }
+    for(let i=0;i<expired.length;i+=128)await this.ctx.storage.delete(expired.slice(i,i+128))
+    games.sort((a,b)=>Number(b.turn)-Number(a.turn)||(a.deadline??Infinity)-(b.deadline??Infinity))
+    return {games,queued:request&&!request.matched&&request.created+dailyLifetime>Date.now()?request.days:null}
+  }
+  async dailyInvite(player:Identity,days:number){
+    const id=token()
+    await room(this.env,id).initialize({id,control:dailyControl(days),seats:{white:player},rated:false,created:Date.now(),open:true})
+    await this.registerDaily(player.id,id)
+    return {id}
+  }
+  async dailySearch(player:Identity,days:number,requestId:string,cancel=false){
+    return this.ctx.blockConcurrencyWhile(async()=>{
+      const prefix='daily-search/'
+      const key=prefix+player.id
+      if(cancel){await this.ctx.storage.delete(key);return {}}
+      const now=Date.now()
+      const mine=await this.ctx.storage.get<DailyTicket>(key)
+      if(mine?.matched&&mine.requestId===requestId)return {id:mine.id}
+      const queue=await this.ctx.storage.list<DailyTicket>({prefix})
+      const expired:string[]=[]
+      const candidates:[string,DailyTicket][]=[]
+      for(const [other,ticket] of queue){
+        if(ticket.created+dailyLifetime<=now)expired.push(other)
+        else if(other!==key&&!ticket.matched&&ticket.days===days)candidates.push([other,ticket])
+      }
+      for(let i=0;i<expired.length;i+=128)await this.ctx.storage.delete(expired.slice(i,i+128))
+      candidates.sort((a,b)=>a[1].created-b[1].created)
+      for(const [other,opponent] of candidates){
+        const blocked=await this.ctx.storage.get(['block/'+player.id+'/'+opponent.owner.id,'block/'+opponent.owner.id+'/'+player.id])
+        if(blocked.size)continue
+        const id=opponent.id
+        const seats=Math.random()<.5?{white:player,black:opponent.owner}:{white:opponent.owner,black:player}
+        await room(this.env,id).initialize({id,control:dailyControl(days),seats,rated:false,created:now,open:false})
+        await this.ctx.storage.transaction(async txn=>{
+          await txn.put<DailyTicket>(key,{owner:player,id,days,created:now,requestId,matched:true})
+          await txn.put<DailyTicket>(other,{...opponent,created:now,matched:true})
+          await txn.put(dailyRoomKey(player.id,id),id)
+          await txn.put(dailyRoomKey(opponent.owner.id,id),id)
+        })
+        return {id}
+      }
+      const same=mine&&!mine.matched&&mine.days===days&&mine.created+dailyLifetime>now
+      await this.ctx.storage.put<DailyTicket>(key,{owner:player,id:same?mine.id:token(),days,created:same?mine.created:now,requestId})
+      return {queued:days}
+    })
+  }
   async session(id:string) {
     const entry=await this.ctx.storage.get<{user:Identity;expires:number}>('session/'+id)
     if(!entry || entry.expires<=Date.now()) return
@@ -410,7 +516,7 @@ export class Lobby extends DurableObject<Env> {
       await txn.delete('watch/'+final.room.id)
       const players=[final.room.seats.white,final.room.seats.black]
       const accounts = await Promise.all(players.map(async player=>player?.account?this.profileIn(txn,player):null))
-      const group=pool(final.room.control.seconds,final.room.control.increment)
+      const group=final.room.control.days?'Daily':pool(final.room.control.seconds,final.room.control.increment)
       const now=Date.now()
       const starts=accounts.map(p=>p?.ratings[group] ?? defaultRating())
       const rated=final.room.rated && Boolean(final.room.bot || (accounts[0] && accounts[1]))
@@ -418,6 +524,7 @@ export class Lobby extends DurableObject<Env> {
         const player=players[i], profile=accounts[i]
         if(!player) continue
         if(await txn.get('active/'+player.id)===final.room.id) await txn.delete('active/'+player.id)
+        if(final.room.control.days)await txn.delete(dailyRoomKey(player.id,final.room.id))
         if(!profile) continue
         const score=final.winner===null?0.5:final.winner===(i===0?'white':'black')?1:0
         const old=starts[i]
@@ -454,7 +561,7 @@ export default {
     if(endpoint==='api' || endpoint.length>120) return problem('Not found',404)
     const ip=req.headers.get('CF-Connecting-IP')
     if(ip && endpoint!=='health'){
-      const heavy=endpoint==='rooms'||endpoint==='session'||endpoint.startsWith('auth/')
+      const heavy=endpoint==='rooms'||endpoint==='session'||endpoint.startsWith('auth/')||(endpoint==='daily'&&req.method==='POST')
       const binding=heavy?env.WRITE_LIMIT:env.GAME_LIMIT
       const sessionKey=cookie(req,'remorse_account') ?? cookie(req,'remorse_guest')
       const key=!heavy && sessionKey && /^[a-f0-9]{32}$/.test(sessionKey) ? sessionKey : ip
@@ -620,6 +727,25 @@ export default {
     if(endpoint==='profile' && req.method==='GET') return player.account?json(await lobby(env).profile(player)):problem('Sign in to view a profile',401)
     if(endpoint==='watch' && req.method==='GET') return json(await lobby(env).watch())
     if(endpoint==='leaders' && req.method==='GET') return json(await lobby(env).leaders())
+    if(endpoint==='presence'&&req.method==='GET'){
+      if(req.headers.get('upgrade')?.toLowerCase()!=='websocket')return problem('WebSocket required',426)
+      const headers=new Headers(req.headers)
+      headers.set('x-remorse-presence',player.id)
+      return lobby(env).fetch(new Request(req,{headers}))
+    }
+    if(endpoint==='daily'){
+      if(!player.account)return problem('Sign in to play Daily games',401)
+      if(req.method==='GET')return json(await lobby(env).daily(player.id))
+      if(req.method!=='POST')return problem('Method not allowed',405)
+      const input=await req.json<{action?:string;days?:number;requestId?:string}>().catch(()=>null)
+      if(input?.action==='cancel')return json(await lobby(env).dailySearch(player,0,'',true))
+      const days=input?.days
+      if(typeof days!=='number'||!dailyDays.some(value=>value===days))return problem('Choose days per turn')
+      if(input?.action==='invite')return json(await lobby(env).dailyInvite(player,days),201)
+      if(input?.action==='find'&&typeof input.requestId==='string'&&/^[a-f0-9-]{36}$/.test(input.requestId))
+        return json(await lobby(env).dailySearch(player,days,input.requestId))
+      return problem('Invalid Daily game action')
+    }
     if((endpoint==='rooms' || endpoint==='queue') && req.method==='POST'){
       const body=await req.json<Partial<Control>&{rated?:boolean;cancel?:boolean;flexible?:boolean;searchId?:string;acceptBot?:boolean}>().catch(()=>null)
       const control=body&&parseControl(body)
@@ -650,7 +776,12 @@ export default {
         if(body.length>4096) return problem('Action too large',413)
         try { JSON.parse(body) } catch { return problem('Invalid action') }
       }
-      return room(env,parts[1]).fetch(new Request(url.origin+'/'+action,{method:req.method,headers,body}))
+      const response=await room(env,parts[1]).fetch(new Request(url.origin+'/'+action,{method:req.method,headers,body}))
+      if(action==='join'&&response.ok&&player.account){
+        const state=await response.clone().json<{seat:Side|null;room:{control:Control};match:Match}>()
+        if(state.seat&&state.room.control.days&&!state.match.game.result)await lobby(env).registerDaily(player.id,parts[1])
+      }
+      return response
     }
     return problem('Not found',404)
   },

@@ -61,6 +61,22 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 
 .queue-preference{margin-bottom:.5rem}.queue-preference button{width:100%;text-align:left}#email-start,#email-finish{margin-bottom:1rem}#email-start input,#email-finish input{max-width:100%;padding:.4rem}#email-status{margin:.6rem 0;color:var(--gold)}
 .ranked-bot-button{margin-top:.65rem}
+.launch > h2 { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+#online-count { color: var(--muted); font-size: .72rem; font-weight: 600; letter-spacing: 0; }
+.play-tabs { display: flex; gap: .5rem; margin-bottom: .95rem; }
+.play-tabs button { flex: 1; }
+.clock-groups { display: grid; gap: .72rem; margin-top: .8rem; }
+.clock-groups h3 { margin: 0 0 .35rem; color: var(--muted); font-size: .87rem; }
+.daily-help { margin: .8rem 0 .65rem; color: var(--muted); }
+#daily-status { margin: .65rem 0; color: var(--gold); font-size: .9rem; }
+#daily-status:empty { display: none; }
+#daily-list:not(:empty) { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+#daily-list p { margin-bottom: 0; color: var(--muted); }
+.daily-queued { display: flex; align-items: center; justify-content: space-between; gap: .65rem; margin-bottom: .65rem; }
+.daily-queued .link { margin: 0; }
+.daily-games { list-style: none; padding: 0; margin: 0; }
+.daily-games li + li { border-top: 1px solid var(--line); }
+.daily-games a { display: block; padding: .5rem 0; overflow-wrap: anywhere; }
 .piece img.classic-pawn{width:.77em;height:.83em;image-rendering:auto}
 .self-capture{position:absolute;inset:0;z-index:3;display:grid;place-items:center;pointer-events:none}
 .remorse-ash{position:absolute;z-index:4;top:54%;left:50%;width:5px;height:5px;background:#e5b7ff;box-shadow:0 0 5px #5e3c64;pointer-events:none}

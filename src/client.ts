@@ -1,7 +1,7 @@
 import './style.css'
 import {homeGuide} from './home-guide.ts'
 import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,type Action,type Side,type Kind,type Piece} from './rules.ts'
-import {command,makeMatch,expire,remaining,presets,type Match,type Control,type Command} from './match.ts'
+import {command,dailyDays,makeMatch,expire,remaining,presets,type Match,type Control,type Command,type DailyLobby} from './match.ts'
 import {pool,deviation,type Rating} from './rating.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
 import type {PublicKeyCredentialCreationOptionsJSON,PublicKeyCredentialRequestOptionsJSON} from '@simplewebauthn/browser'
@@ -70,7 +70,7 @@ const grid=Array.from({length:64},(_,i)=>(7-Math.floor(i/8))*8+i%8)
 const rules='<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · Devastated</dt><dd>Frozen. A friendly bishop must absolve it within its owner’s next three turns.</dd><dt>2–3 · Guilt-ridden</dt><dd>Can move but cannot capture until absolved.</dd><dt>4–5 · Unaffected</dt><dd>Moves and captures normally.</dd><dt>6 · Psychopath</dt><dd>After capturing, move the same piece again or end the turn. At three captures, bloodlust makes it capture only, even friendly pieces.</dd></dl><p>Select a friendly bishop in any of the eight squares around a guilt-ridden or devastated piece, including the corners. Tap a piece with a green circle and choose Absolve. Absolution uses one turn. An absolved piece never rolls again. A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.</p>'
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:false,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
-type Snapshot={room:{white?:string;black?:string;open:boolean;rated:boolean;bot?:Side;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
+type Snapshot={room:{white?:string;black?:string;open:boolean;rated:boolean;bot?:Side;control:Control;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
 type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean}
 type SearchTicket=Control&{rated:boolean;flexible:boolean;searchId:string}
 let session:Session|null=null
@@ -86,6 +86,10 @@ let resultTimer=0
 let choice=3, flexible=true, queue:SearchTicket|null=null, queueTimer=0, generation=0, rated=false
 let rankedBotReady=false
 let pollQueue:((acceptBot?:boolean)=>Promise<void>)|undefined
+let playTab:'live'|'daily'='live'
+let dailyChoice:number=3
+let dailyLobby:DailyLobby|null=null, dailyBusy=false, dailyLoading=false, dailyMessage=''
+let onlineCount:number|null=null, presence:WebSocket|null=null, presenceTimer=0
 let names={white:'White',black:'Black'}
 let past:Match[]=[], future:Match[]=[], review:number|null=null, seed=initial(), lesson=0, promotion:Action[]=[]
 let audio:AudioContext|undefined, soundVersion=-1, drag:number|null=null, focus=4
@@ -129,6 +133,7 @@ async function login(){
   if(session)return session
   sessionPromise??=api<Session>('session').finally(()=>{sessionPromise=null})
   const value=await sessionPromise
+  if(value!==session)connectPresence()
   session=value
   if(value.account){
     const remote=await api<Partial<typeof defaults>>('settings').catch(()=>null)
@@ -141,14 +146,71 @@ async function login(){
   }
   return value
 }
-const button=(action:string,text:string,cls='')=>'<button class="'+cls+'" data-do="'+action+'">'+text+'</button>'
+const button=(action:string,text:string,cls='',disabled=false)=>'<button class="'+cls+'" data-do="'+action+'"'+(disabled?' disabled':'')+'>'+text+'</button>'
 const today=()=>Date.now()+(mode==='online'?offset:0)
-const clockLabel=(c:Control)=>c.seconds?(c.seconds%60===0?c.seconds/60:Math.floor(c.seconds/60)+':'+String(c.seconds%60).padStart(2,'0'))+'+'+c.increment:'∞'
-function clocks(indices:number[]){
-  return indices.map(i=>'<button data-control="'+i+'" aria-pressed="'+(!flexible&&choice===i)+'" '+(queue?'disabled':'')+'><b>'+clockLabel(presets[i])+'</b><small>'+(presets[i].seconds?pool(presets[i].seconds,presets[i].increment):'Untimed')+'</small></button>').join('')
+const daysLabel=(days:number)=>days+(days===1?' day':' days')
+const clockLabel=(c:Control)=>c.days?daysLabel(c.days)+' / turn':c.seconds?(c.seconds%60===0?c.seconds/60:Math.floor(c.seconds/60)+':'+String(c.seconds%60).padStart(2,'0'))+'+'+c.increment:'∞'
+function clocks(indices:number[],showPool=true){
+  return indices.map(i=>'<button data-control="'+i+'" aria-pressed="'+(!flexible&&choice===i)+'" '+(queue?'disabled':'')+'><b>'+clockLabel(presets[i])+'</b>'+
+    (showPool?'<small>'+(presets[i].seconds?pool(presets[i].seconds,presets[i].increment):'Untimed')+'</small>':'')+'</button>').join('')
+}
+const liveGroups=[['Bullet',[12,0,1,2]],['Blitz',[3,4,5,6]],['Rapid',[7,8,9,10]]] as const
+function onlineLabel(){
+  return onlineCount===null?'':new Intl.NumberFormat().format(onlineCount)+(onlineCount===1?' player online':' players online')
+}
+function connectPresence(){
+  clearTimeout(presenceTimer)
+  presence?.close()
+  const ws=new WebSocket((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/presence')
+  presence=ws
+  ws.onmessage=event=>{
+    if(presence!==ws)return
+    const data=JSON.parse(String(event.data)) as {online:number}
+    if(!Number.isSafeInteger(data.online)||data.online<0)return
+    onlineCount=data.online
+    const label=$('#online-count')
+    if(label)label.textContent=onlineLabel()
+  }
+  ws.onclose=()=>{
+    if(presence!==ws)return
+    presence=null;onlineCount=null
+    const label=$('#online-count')
+    if(label)label.textContent=''
+    presenceTimer=window.setTimeout(connectPresence,navigator.onLine?5000:15000)
+  }
+}
+function livePanel(){
+  return '<div class="queue-preference"><button data-do="quick-clock" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button></div>'+
+    '<div class="clock-groups">'+liveGroups.map(([label,indices])=>'<section><h3>'+label+'</h3><div class="clocks">'+clocks([...indices],false)+'</div></section>').join('')+'</div>'+
+    button('more','Custom clock & untimed','link')+
+    (!flexible&&(choice===11||choice>=13)?'<small>Selected: '+(presets[choice].seconds?clockLabel(presets[choice]):'Untimed')+'</small>':'')+
+    (session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+
+    button(queue?'cancel':'queue',queue?'Cancel search':rated?'Find ranked match':flexible?'Quick match':'Find online match','primary full')+
+    (rankedBotReady?button('ranked-bot','Play Ranked Bot','primary full ranked-bot-button')+'<small>Up to 12 rating points per bot game. The first three eligible games each UTC day can count.</small>':'')+
+    '<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p>'
+}
+function dailyList(){
+  if(!session?.account)return ''
+  const games=dailyLobby?.games??[]
+  return (dailyLobby?.queued?'<div class="daily-queued"><span>Waiting for a match · '+daysLabel(dailyLobby.queued)+' / turn</span>'+button('daily-cancel','Cancel search','link')+'</div>':'')+
+    '<h3>Your Daily games</h3>'+(games.length?'<ul class="daily-games">'+games.map(game=>'<li><a href="/?game='+game.id+'"><b>'+safe(game.opponent??'Friend invitation')+'</b><small>'+
+      daysLabel(game.days)+' / turn · '+(game.waiting?'Waiting for a friend':game.turn?'Your turn':'Opponent’s turn')+'</small></a></li>').join('')+'</ul>':
+      '<p>'+(dailyLobby?'No active Daily games.':dailyMessage?'':'Loading…')+'</p>')
+}
+function dailyPanel(){
+  return '<h3>Days per turn</h3><div class="clocks daily-clocks">'+dailyDays.map(days=>'<button data-days="'+days+'" aria-pressed="'+(dailyChoice===days)+'" '+(dailyBusy?'disabled':'')+'><b>'+daysLabel(days)+'</b></button>').join('')+'</div>'+
+    '<p class="daily-help">Your clock resets after each complete turn. A bonus move shares the same deadline.</p>'+
+    (session?.account?'<div class="alt">'+button('daily-find','Find a random opponent','primary',dailyBusy)+button('daily-invite','Invite a friend','',dailyBusy)+'</div>':button('sign-in','Sign in to play Daily','primary full'))+
+    '<p id="daily-status" role="status">'+safe(dailyMessage)+'</p><div id="daily-list">'+dailyList()+'</div>'
 }
 function home(){
-  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+'<a class="link hero-rules" href="#how-to-play">How to play ↓</a>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="queue-preference"><button data-do="quick-clock" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button></div><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked (separate queue)</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+button(queue?'cancel':'queue',queue?'Cancel search':rated?'Find ranked match':flexible?'Quick match':'Find online match','primary full')+(rankedBotReady?button('ranked-bot','Play Ranked Bot','primary full ranked-bot-button')+'<small>Up to 12 rating points per bot game. The first three eligible games each UTC day can count.</small>':'')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section>'+homeGuide+'</main>'
+  const hero='<section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+
+    '<a class="link hero-rules" href="#how-to-play">How to play ↓</a>'+button('tutorial','▶ Try the tutorial','link')+'</section>'
+  const play='<section class="panel launch"><h2>♜ PLAY <span id="online-count">'+onlineLabel()+'</span></h2><div class="pad">'+
+    '<div class="play-tabs" role="group" aria-label="Play mode"><button data-do="live-tab" aria-pressed="'+(playTab==='live')+'">Live</button><button data-do="daily-tab" aria-pressed="'+(playTab==='daily')+'">Daily</button></div>'+
+    (playTab==='daily'?dailyPanel():livePanel())+'</div></section>'
+  const outcomes=[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')
+  return '<main class="home">'+hero+play+'<section class="outcomes">'+outcomes+'</section>'+homeGuide+'</main>'
 }
 let reviewCache:{source:Match;index:number;view:Match}|null=null
 function view(){
@@ -198,7 +260,7 @@ function game(){
     const annotations=[x.roll?'🎲 '+x.roll+' · '+moodNames[x.mood!]:x.mood==='bloodlust'?'Bloodlust activated':'',x.capture?.side===x.side?'Friendly capture':'',...x.vanished.map(p=>cap(p.side)+' '+labels[p.kind].toLowerCase()+' on '+name(p.square)+' self-captured')].filter(Boolean)
     return tab==='Events'&&!annotations.length&&x.action.type!=='absolve'?'':'<li><span>'+x.turn+' '+(x.side==='white'?'○':'●')+'</span><div><b>'+safe(x.text)+'</b>'+annotations.map(a=>'<small>'+safe(a)+'</small>').join('')+'</div></li>'
   }).join('')
-  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.bot?(info.rated?'RANKED BOT · RATED':'RANKED QUEUE · UNRATED BOT'):info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY · BOT':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||(canAct()&&actions.some(a=>a.type==='absolve')?'Tap a green circle to absolve that piece.':''))+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
+  return '<main class="game"><section><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.bot?(info.rated?'RANKED BOT · RATED':'RANKED QUEUE · UNRATED BOT'):info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY · BOT':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||(canAct()&&actions.some(a=>a.type==='absolve')?'Tap a green circle to absolve that piece.':''))+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
 function render(){
   const focused=document.activeElement instanceof HTMLElement&&document.activeElement.matches('[data-square]')
@@ -210,6 +272,7 @@ function render(){
   if(focused)$('[data-square="'+focus+'"]')?.focus({preventScroll:true})
   if(settingsOpen)settings()
   tick()
+  if(mode==='home'&&playTab==='daily'&&!dailyLobby)void refreshDaily()
 }
 function tell(s:string){status=s;const el=$('#status');if(el)el.textContent=s}
 function tick(){
@@ -220,7 +283,9 @@ function tick(){
     const node=$('#clock-'+side)
     if(!node)continue
     const s=Math.ceil(remaining(v,side,today())/1000)
-    node.textContent=v.control.seconds?Math.floor(s/60)+':'+String(s%60).padStart(2,'0'):'∞'
+    const minutes=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')
+    node.textContent=v.control.days&&s>=86400?Math.floor(s/86400)+'d '+Math.floor(s%86400/3600)+'h':
+      v.control.days&&s>=3600?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':v.control.seconds?minutes:'∞'
     node.classList.toggle('low',Boolean(v.control.seconds&&s<15))
   }
 }
@@ -240,7 +305,7 @@ function showResult(celebrate=false){
   const title=!winner?'Draw':perspective?winner===perspective?'You win':'You lose':cap(winner)+' wins'
   const score=!winner?'½ – ½':winner==='white'?'1 – 0':'0 – 1'
   const winnerText=winner&&perspective?'<span class="result-winner">'+cap(winner)+' wins</span>':''
-  const again=mode==='online'?(seat?info?.bot?button('queue-again','Find another ranked match','primary'):button('rematch','Rematch','primary'):''):button('restart','Play again','primary')
+  const again=mode==='online'?(seat?info?.control.days?button('daily-tab','Daily games','primary'):info?.bot?button('queue-again','Find another ranked match','primary'):button('rematch','Rematch','primary'):''):button('restart','Play again','primary')
   const victory=outcome==='win'&&celebrate&&!prefs.motion&&prefs.speed!=='off'
   modal('<section class="result-content '+outcome+(victory?' victory-celebrate '+(prefs.speed==='fast'?'victory-fast':''):'')+'" aria-labelledby="result-title">'+
     '<div class="result-emblem" aria-hidden="true"><span class="result-symbol">'+(outcome==='win'?'♛':outcome==='loss'?'♚':'½')+'</span></div>'+
@@ -290,7 +355,7 @@ function savePrefs(){
   }
 }
 function clocksDialog(){
-  modal('<h2>Time controls</h2><div class="clocks">'+clocks(presets.map((_,i)=>i))+'</div><form id="custom"><h3>Custom clock</h3><div class="settings"><label>Minutes<input type="number" name="minutes" value="5" min="0" max="360" required></label><label>Seconds<input type="number" name="seconds" value="0" min="0" max="59" required></label><label>Increment<input type="number" name="increment" value="2" min="0" max="180" required></label></div><button class="primary">Use custom clock</button></form>')
+  modal('<h2>Custom clock &amp; untimed</h2><div class="clocks">'+clocks([11,...presets.map((_,i)=>i).slice(13)])+'</div><form id="custom"><h3>Custom clock</h3><div class="settings"><label>Minutes<input type="number" name="minutes" value="5" min="0" max="360" required></label><label>Seconds<input type="number" name="seconds" value="0" min="0" max="59" required></label><label>Increment<input type="number" name="increment" value="2" min="0" max="180" required></label></div><button class="primary">Use custom clock</button></form>')
 }
 function closeRoom(){
   id=''
@@ -299,7 +364,7 @@ function closeRoom(){
   if(socket){socket.onclose=null;socket.close();socket=null}
 }
 function goHome(keepGuide=false){
-  closeRoom();void cancel();mode='home';m=null;status='';review=null
+  closeRoom();void cancel();mode='home';playTab='live';m=null;status='';review=null
   history.replaceState({},'',keepGuide?'/#how-to-play':'/');render()
 }
 function local(kind:string,control=presets[choice],fromQuickPlay=false){
@@ -318,10 +383,10 @@ function local(kind:string,control=presets[choice],fromQuickPlay=false){
   render()
   if(kind==='bot')bot()
 }
-let pulling=false
+let pulling=false,lastSync=0
 async function sync(){
   if(pulling||!id)return
-  const room=id;pulling=true
+  const room=id;pulling=true;lastSync=Date.now()
   try{const data=await api<Snapshot>('room/'+room);if(id===room)apply(data)}
   catch(e){if(id===room)tell((e as Error).message)}
   finally{pulling=false}
@@ -356,7 +421,48 @@ async function online(room:string){
   render();await login();if(id===room){await sync();wire(room)}
 }
 // The poll also covers updates committed while a fetch was in flight.
-setInterval(()=>{if(id)void sync()},2400)
+setInterval(()=>{if(id&&(!info?.control.days||(!document.hidden&&Date.now()-lastSync>=15_000)))void sync()},2400)
+async function refreshDaily(){
+  if(!session?.account||dailyLoading||dailyBusy)return
+  dailyLoading=true
+  try{
+    dailyLobby=await api<DailyLobby>('daily')
+    const list=$('#daily-list')
+    if(list)list.innerHTML=dailyList()
+  }catch(e){
+    if(!dailyLobby){
+      dailyMessage=(e as Error).message
+      $('#daily-status')?.replaceChildren(dailyMessage)
+      const list=$('#daily-list')
+      if(list)list.innerHTML=dailyList()
+    }
+  }finally{dailyLoading=false}
+}
+async function openDaily(){
+  if(mode!=='home')goHome()
+  else void cancel()
+  playTab='daily';dailyMessage=''
+  history.replaceState({},'','/#daily')
+  render()
+  await login()
+  if(mode==='home'&&playTab==='daily'){render();await refreshDaily()}
+}
+async function dailyAction(action:'find'|'invite'|'cancel'){
+  if(dailyBusy||mode!=='home'||playTab!=='daily')return
+  if(!(await login()).account){signIn();return}
+  dailyBusy=true;dailyMessage='';render()
+  try{
+    const response=await api<{id?:string;queued?:number}>('daily',{action,days:dailyChoice,requestId:crypto.randomUUID()})
+    if(mode!=='home'||playTab!=='daily')return
+    if(response.id){await online(response.id);return}
+    dailyMessage=response.queued?'You can leave this page while the search continues.':''
+  }catch(e){dailyMessage=(e as Error).message}
+  finally{
+    dailyBusy=false
+    if(mode==='home'&&playTab==='daily'){render();await refreshDaily()}
+  }
+}
+setInterval(()=>{if(mode==='home'&&playTab==='daily'&&!document.hidden)void refreshDaily()},15_000)
 async function search(){
   await login()
   if(queue||mode!=='home')return
@@ -737,6 +843,11 @@ async function account(which:string){
 async function handle(action:string){
   switch(action){
     case 'home':goHome();return
+    case 'live-tab':playTab='live';history.replaceState({},'','/');render();return
+    case 'daily-tab':await openDaily();return
+    case 'daily-find':await dailyAction('find');return
+    case 'daily-invite':await dailyAction('invite');return
+    case 'daily-cancel':await dailyAction('cancel');return
     case 'rules':modal('<h2>How to play</h2>'+rules+button('tutorial','Try the tutorial','primary'));return
     case 'about':modal('<h2>About & privacy</h2><p>Remorse Chess uses cookies to keep your online seat. Game links can be viewed by anyone with the link. Ranked accounts store your player name, passkey public key or verified email record, rating and game history. When enabled, the sponsor banner is provided by Adsterra and connects to its ad network.</p><p>The board uses chess symbols and original pixel sprites. Game sounds are synthesized.</p><a href="https://github.com/LukasJT/remorsechess">Source & feedback</a>');return
     case 'settings':settings();return
@@ -777,7 +888,7 @@ async function handle(action:string){
       return
     }
     case 'names':modal('<h2>Local player names</h2><form id="names"><div class="settings"><label>White <input name="white" maxlength="30" value="'+safe(names.white)+'"></label><label>Black <input name="black" maxlength="30" value="'+safe(names.black)+'"></label></div><button class="primary">Save names</button></form>');return
-    case 'join':{const room=id;const data=await api<Snapshot>('room/'+room+'/join',{});if(id===room){flipped=data.seat==='black';apply(data)}return}
+    case 'join':{if(info?.control.days&&!session?.account){signIn();return}const room=id;const data=await api<Snapshot>('room/'+room+'/join',{});if(id===room){flipped=data.seat==='black';apply(data)}return}
     case 'share':{
       const link=location.origin+'/?game='+id
       if(navigator.clipboard){await navigator.clipboard.writeText(link);tell('Game link copied.')}
@@ -806,12 +917,13 @@ function unlockAudio(){
   if(prefs.volume&&typeof AudioContext!=='undefined'){audio??=new AudioContext();void audio.resume().catch(()=>{})}
 }
 root.addEventListener('click',event=>{
-  const el=(event.target as HTMLElement).closest<HTMLElement>('[data-do],[data-square],[data-control],[data-tab],[data-promotion]')
+  const el=(event.target as HTMLElement).closest<HTMLElement>('[data-do],[data-square],[data-control],[data-days],[data-tab],[data-promotion]')
   if(!el)return
   unlockAudio()
   if(el.dataset.do){event.preventDefault();void handle(el.dataset.do).catch(e=>{tell(e.message);if(!$('#status'))modal('<h2>Something went wrong</h2><p>'+safe(e.message)+'</p>')})}
   else if(el.dataset.square!==undefined){focus=Number(el.dataset.square);square(focus)}
   else if(el.dataset.control!==undefined){if(!queue){choice=Number(el.dataset.control);flexible=false;render()}}
+  else if(el.dataset.days!==undefined){if(!dailyBusy){dailyChoice=Number(el.dataset.days);render()}}
   else if(el.dataset.tab){tab=el.dataset.tab;render()}
   else if(el.dataset.promotion!==undefined){$<HTMLDialogElement>('#modal')?.close();confirmAction(promotion[Number(el.dataset.promotion)])}
 })
@@ -896,6 +1008,7 @@ root.addEventListener('dragend',()=>{drag=null})
 const route=()=>{
   const gameId=new URLSearchParams(location.search).get('game')
   if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
+  else if(location.hash==='#daily')void openDaily().catch(e=>$('#daily-status')?.replaceChildren(e.message))
   else if(mode!=='home'||!root.hasChildNodes()){
     const guide=location.hash==='#how-to-play'
     goHome(guide)

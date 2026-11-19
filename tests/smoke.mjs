@@ -101,3 +101,28 @@ assert.deepEqual((await white('queue',fallback)).bot,{seconds:431,increment:7})
 assert.equal((await black('queue',{...fallback,searchId:crypto.randomUUID()})).queued,true)
 console.log('Online smoke passed: independent seats, WebSocket updates, capture and roll replay, command deduplication, stale/spectator rejection, resignation, seat-swapped rematch, fixed and flexible matchmaking, cancel, and timeout.')
 console.log('Quick Play fallback passed: wait, cancellation, idempotent bot assignment and queue isolation.')
+
+function presence(client){
+  const ws=new WebSocket(origin.replace(/^http/,'ws')+'/api/presence',{headers:{cookie:client.cookie(),origin}})
+  let count
+  ws.addEventListener('message',event=>{count=JSON.parse(event.data).online})
+  return {ws,waitFor:async(expected)=>{
+    for(let attempts=0;attempts<50;attempts++){
+      if(count!==undefined&&(expected===undefined||count===expected))return count
+      await new Promise(resolve=>setTimeout(resolve,100))
+    }
+    throw Error('Presence count did not update. Last seen: '+count)
+  }}
+}
+const p1=presence(white)
+const startCount=await p1.waitFor()
+const duplicate=presence(white)
+assert.equal(await duplicate.waitFor(),startCount)
+const p2=presence(black)
+assert.equal(await p2.waitFor(),startCount+1)
+await p1.waitFor(startCount+1)
+p2.ws.close()
+await p1.waitFor(startCount)
+duplicate.ws.close()
+p1.ws.close()
+console.log('Presence smoke passed: separate sessions count, duplicate tabs deduplicate, and disconnects update the count.')

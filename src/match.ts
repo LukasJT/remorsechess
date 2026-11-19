@@ -1,6 +1,8 @@
 import { initial, opposite, play, type Game, type Action, type Event, type Result, type Side } from './rules.ts'
-export type Control = { seconds: number; increment: number }
+export type Control = { seconds: number; increment: number; days?:number }
 export type SearchClock = Control | 'any'
+export type DailyGame = { id:string; days:number; opponent?:string; waiting:boolean; turn:boolean; deadline?:number }
+export type DailyLobby = { games:DailyGame[]; queued:number|null }
 export const quickClock:Control={seconds:180,increment:0}
 export function compatibleClock(a:SearchClock,b:SearchClock):Control|null {
   if(a==='any'&&b==='any')return quickClock
@@ -13,7 +15,9 @@ export function compatibleClock(a:SearchClock,b:SearchClock):Control|null {
 export type Entry = { action?: Action; event?: Event; result?: Result; clock: Record<Side, number>; start: number }
 export type Match = { game: Game; clock: Record<Side, number>; start: number; control: Control; version: number; log: Entry[]; offer: Side | null }
 export type Command = Action | { type:'resign' | 'offer' | 'accept' | 'decline' }
-export const presets: Control[] = [[60,0],[60,1],[120,1],[180,0],[180,2],[300,0],[300,5],[600,0],[900,10],[1800,0],[3600,0],[0,0]].map(([seconds,increment]) => ({seconds,increment}))
+export const presets: Control[] = [[60,0],[60,1],[120,1],[180,0],[180,2],[300,0],[300,5],[600,0],[900,10],[1800,0],[3600,0],[0,0],[30,0]].map(([seconds,increment]) => ({seconds,increment}))
+export const dailyDays=[1,2,3,5,7,10,14] as const
+export const dailyControl=(days:number):Control=>({seconds:days*86_400,increment:0,days})
 export function makeMatch(control: Control, start = 0): Match {
   return { game:initial(), clock:{white:control.seconds*1000,black:control.seconds*1000}, start, control, version:0, log:[], offer:null }
 }
@@ -43,7 +47,10 @@ export function command(m: Match, side: Side, action: Command, now: number, die?
   if (!step) return
   const clock = {...m.clock}
   clock[side] = remaining(m,side,now)
-  if (m.control.seconds && step.game.side !== side) clock[side] += m.control.increment*1000
+  if (step.game.side !== side){
+    if(m.control.days)clock[side]=m.control.seconds*1000
+    else if(m.control.seconds)clock[side]+=m.control.increment*1000
+  }
   const start = step.game.result ? 0 : now
   return {...m,...{game:step.game,clock,start},offer:m.offer === opposite(side) ? null : m.offer,version:m.version+1,
     log:[...m.log,{action:action as Action,event:step.event,result:step.game.result ?? undefined,clock,start}]}

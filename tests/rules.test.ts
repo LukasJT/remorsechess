@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {initial,legal,play,at,type Game,type Piece,type Action} from '../src/rules.ts'
-import {makeMatch,command,expire} from '../src/match.ts'
+import {dailyControl,makeMatch,command,expire} from '../src/match.ts'
 import {defaultRating, updateRating, pool} from '../src/rating.ts'
 
 const move=(from:number,to:number):Action=>({type:'move',from,to})
@@ -69,6 +69,18 @@ test('bonus uses the same clock and earns increment once',()=>{
   assert.equal(second.clock.white,60000)
   assert.equal(second.game.side,'black')
   assert.equal(expire(first,61000).game.result?.winner,'black')
+})
+test('Daily clocks reset per turn and a bonus does not extend the deadline',()=>{
+  const clock=3*86_400_000
+  const match={...makeMatch(dailyControl(3),1000),game:capturePosition()}
+  const bonus=command(match,'white',move(10,27),2000,()=>6)!
+  assert.equal(bonus.game.side,'white')
+  assert.equal(bonus.start+bonus.clock.white,1000+clock)
+  const completed=command(bonus,'white',{type:'end'},5000)!
+  assert.equal(completed.game.side,'black')
+  assert.equal(completed.clock.white,clock)
+  assert.equal(completed.start+completed.clock.black,5000+clock)
+  assert.equal(expire(completed,5000+clock).game.result?.winner,'white')
 })
 test('castling, en passant and promotion preserve the chess rules',()=>{
   const castle=fixture([{kind:'r',square:7,moved:false}])

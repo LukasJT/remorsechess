@@ -33,6 +33,8 @@ Run the smoke test against an already running Worker. Set `REMORSE_TEST_URL` to 
 - Account sessions, matchmaking, ratings, and game indexes are stored in the lobby's SQLite Durable Object. Individual game state lives in separate room objects. Deploy load testing is required before advertising a capacity target.
 - Matchmaking prioritizes human opponents. Quick Play falls back to a browser bot after eight seconds. After 20 seconds the Ranked queue offers a server-played bot while it continues looking for a human. Both bot opponents are labeled.
 - Ranked bot games with a starting clock of at least 60 seconds can move a player's rating by up to 12 points per game. At most three count per UTC day across all pools. The bot uses a fixed 1500 reference and bot results do not lower rating deviation or count toward leaderboard eligibility. Human-vs-human games use the normal Glicko-2 update.
+- Daily games are unrated human matches at 1, 2, 3, 5, 7, 10, or 14 days per turn. Sign in to keep ongoing games and a pending random search in your Daily list. Invitation links and unmatched requests last 14 days. Bonus moves share the current turn’s deadline.
+- The lobby counts connected visitors through hibernating WebSockets. Multiple tabs using the same session count once. Queue bots have no presence connection.
 
 ## Cloudflare deployment
 
@@ -74,4 +76,4 @@ Adsterra banners are served in sandboxed iframes on isolated banner routes. Play
 
 ## Launch status
 
-Casual rooms, quick matchmaking, local play, tutorial, bot, and replay are covered by the playable implementation. The Cloudflare production site uses the same rules and smoke-tested ranked flow. Correspondence play and tournaments are separate milestones.
+Casual rooms, quick matchmaking, local play, tutorial, bots, Daily correspondence, and replay are covered by the playable implementation. The Cloudflare production site uses the same rules and smoke-tested ranked flow. Tournaments are a separate milestone.
