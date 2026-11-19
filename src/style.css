@@ -60,6 +60,7 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .match-sponsor.tall iframe { height: 600px; }
 
 .queue-preference{margin-bottom:.5rem}.queue-preference button{width:100%;text-align:left}#email-start,#email-finish{margin-bottom:1rem}#email-start input,#email-finish input{max-width:100%;padding:.4rem}#email-status{margin:.6rem 0;color:var(--gold)}
+.ranked-bot-button{margin-top:.65rem}
 .piece img.classic-pawn{width:.77em;height:.83em;image-rendering:auto}
 .self-capture{position:absolute;inset:0;z-index:3;display:grid;place-items:center;pointer-events:none}
 .remorse-ash{position:absolute;z-index:4;top:54%;left:50%;width:5px;height:5px;background:#e5b7ff;box-shadow:0 0 5px #5e3c64;pointer-events:none}

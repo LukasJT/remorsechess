@@ -1,7 +1,7 @@
 import {availableParallelism} from 'node:os'
 import {Worker,isMainThread,parentPort,workerData} from 'node:worker_threads'
 import {initial,legal,play} from '../src/rules.ts'
-import {chooseMove,baselineWeights} from '../src/bot.ts'
+import {chooseMove,baselineWeights,difficulties} from '../src/bot.ts'
 import {trainedWeights} from '../src/bot-model.ts'
 
 function random(seed){
@@ -13,7 +13,7 @@ function random(seed){
 if(isMainThread){
   const [opponent='prior',count='24',level='tactical']=process.argv.slice(2)
   const games=Number(count)
-  if(!Number.isInteger(games)||games<2||games%2||!['rookie','tactical','expert'].includes(level))throw Error('Supply an even game count and valid level')
+  if(!Number.isInteger(games)||games<2||games%2||!Object.hasOwn(difficulties,level))throw Error('Supply an even game count and valid level')
   const threads=Math.max(1,Math.min(6,availableParallelism()-1,games))
   const jobs=Array.from({length:threads},(_,index)=>new Promise((resolve,reject)=>{
     const worker=new Worker(new URL(import.meta.url),{workerData:{opponent,level,start:index,count:games,threads}})
@@ -27,9 +27,13 @@ if(isMainThread){
     averageMoveMs:Math.round(results.reduce((sum,r)=>sum+r.elapsed,0)/results.reduce((sum,r)=>sum+r.actions,0)),
   }))
 }else{
-  // 'prior' compares the same search with untrained weights; a module path compares another bot.
+  // Compare with untrained weights, another difficulty, or a bot loaded from a module.
   const {opponent,level,start,count,threads}=workerData
-  const old=opponent==='prior'?null:(await import(new URL(opponent,import.meta.url).href)).chooseMove
+  const knownLevel=Object.hasOwn(difficulties,opponent)
+  const old=opponent==='prior'||knownLevel?null:(await import(new URL(opponent,import.meta.url).href)).chooseMove
+  const other=opponent==='prior'?(game,rng)=>chooseMove(game,level,rng,baselineWeights):
+    knownLevel?(game,rng)=>chooseMove(game,opponent,rng):
+    (game,rng)=>old(game,level,rng)
   const results=[]
   for(let i=start;i<count;i+=threads){
     const rng=random(918373+Math.floor(i/2)*1291)
@@ -39,8 +43,7 @@ if(isMainThread){
       const ours=game.side===playAs
       const moves=legal(game)
       const started=performance.now()
-      const action=ply<4?moves[Math.floor(rng()*moves.length)]:ours?chooseMove(game,level,rng,trainedWeights):
-        old?old(game,level,rng):chooseMove(game,level,rng,baselineWeights)
+      const action=ply<4?moves[Math.floor(rng()*moves.length)]:ours?chooseMove(game,level,rng,trainedWeights):other(game,rng)
       if(ours&&ply>=4){elapsed+=performance.now()-started;actions++}
       if(!action)break
       const face=1+Math.floor(rng()*6)

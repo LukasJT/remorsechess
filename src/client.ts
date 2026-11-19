@@ -70,17 +70,22 @@ const grid=Array.from({length:64},(_,i)=>(7-Math.floor(i/8))*8+i%8)
 const rules='<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · Devastated</dt><dd>Frozen. A friendly bishop must absolve it within its owner’s next three turns.</dd><dt>2–3 · Guilt-ridden</dt><dd>Can move but cannot capture until absolved.</dd><dt>4–5 · Unaffected</dt><dd>Moves and captures normally.</dd><dt>6 · Psychopath</dt><dd>After capturing, move the same piece again or end the turn. At three captures, bloodlust makes it capture only, even friendly pieces.</dd></dl><p>Select a friendly bishop in any of the eight squares around a guilt-ridden or devastated piece, including the corners. Tap a piece with a green circle and choose Absolve. Absolution uses one turn. An absolved piece never rolls again. A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.</p>'
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:false,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
-type Snapshot={room:{white?:string;black?:string;open:boolean;rated:boolean;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
+type Snapshot={room:{white?:string;black?:string;open:boolean;rated:boolean;bot?:Side;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
 type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean}
+type SearchTicket=Control&{rated:boolean;flexible:boolean;searchId:string}
 let session:Session|null=null
 let mode='home', m:Match|null=null, selected:number|null=null, absolve=false, flipped=false, tab='Moves', status=''
 let id='', info:Snapshot['room']|null=null, seat:Side|null=null, offset=0, socket:WebSocket|null=null, busy=false
 let difficulty:Difficulty='tactical'
+let quickBot=false
+const botLevel=():Difficulty=>quickBot?'rookie':difficulty
 let human:Side='white'
 let botAgent:Worker|null=null
 let lessonTimer=0
 let resultTimer=0
-let choice=3, flexible=true, queue:({rated:boolean;flexible:boolean}&Control)|null=null, queueTimer=0, generation=0, rated=false
+let choice=3, flexible=true, queue:SearchTicket|null=null, queueTimer=0, generation=0, rated=false
+let rankedBotReady=false
+let pollQueue:((acceptBot?:boolean)=>Promise<void>)|undefined
 let names={white:'White',black:'Black'}
 let past:Match[]=[], future:Match[]=[], review:number|null=null, seed=initial(), lesson=0, promotion:Action[]=[]
 let audio:AudioContext|undefined, soundVersion=-1, drag:number|null=null, focus=4
@@ -143,7 +148,7 @@ function clocks(indices:number[]){
   return indices.map(i=>'<button data-control="'+i+'" aria-pressed="'+(!flexible&&choice===i)+'" '+(queue?'disabled':'')+'><b>'+clockLabel(presets[i])+'</b><small>'+(presets[i].seconds?pool(presets[i].seconds,presets[i].increment):'Untimed')+'</small></button>').join('')
 }
 function home(){
-  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+'<a class="link hero-rules" href="#how-to-play">How to play ↓</a>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="queue-preference"><button data-do="quick-clock" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button></div><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked (separate queue)</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+button(queue?'cancel':'queue',queue?'Cancel search':flexible?'Quick match':'Find online match','primary full')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section>'+homeGuide+'</main>'
+  return '<main class="home"><section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+'<a class="link hero-rules" href="#how-to-play">How to play ↓</a>'+button('tutorial','▶ Try the tutorial','link')+'</section><section class="panel launch"><h2>♜ PLAY</h2><div class="pad"><h3>Time control</h3><div class="queue-preference"><button data-do="quick-clock" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button></div><div class="clocks">'+clocks([0,2,3,4,5,7,8,9])+'</div>'+button('more','More clocks & custom','link')+(session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked (separate queue)</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+button(queue?'cancel':'queue',queue?'Cancel search':rated?'Find ranked match':flexible?'Quick match':'Find online match','primary full')+(rankedBotReady?button('ranked-bot','Play Ranked Bot','primary full ranked-bot-button')+'<small>Up to 12 rating points per bot game. The first three eligible games each UTC day can count.</small>':'')+'<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p></div></section><section class="outcomes">'+[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')+'</section>'+homeGuide+'</main>'
 }
 let reviewCache:{source:Match;index:number;view:Match}|null=null
 function view(){
@@ -161,7 +166,7 @@ function view(){
 }
 const canAct=()=>Boolean(m?.start&&!m.game.result&&!busy&&review===null&&(mode!=='tutorial'||m.game.side==='white'||lesson===3)&&(mode==='online'?seat===m.game.side:mode!=='bot'||m.game.side===human))
 function player(side:Side,v:Match){
-  const who=mode==='online'?info?.[side]??'Open seat':mode==='bot'&&side!==human?difficulties[difficulty].name+' Bot':names[side]
+  const who=mode==='online'?info?.[side]??'Open seat':mode==='bot'&&side!==human?difficulties[botLevel()].name+' Bot':names[side]
   const rating=mode==='online'?info?.ratings?.[side]:undefined
   const displayRating=rating?' · '+Math.round(rating.rating)+(deviation(rating,Date.now())>110?'?':''):''
   return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'"><span class="icon '+side+'">♚</span><div><b>'+safe(who)+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+'</small></div><time id="clock-'+side+'">—</time></div>'
@@ -193,7 +198,7 @@ function game(){
     const annotations=[x.roll?'🎲 '+x.roll+' · '+moodNames[x.mood!]:x.mood==='bloodlust'?'Bloodlust activated':'',x.capture?.side===x.side?'Friendly capture':'',...x.vanished.map(p=>cap(p.side)+' '+labels[p.kind].toLowerCase()+' on '+name(p.square)+' self-captured')].filter(Boolean)
     return tab==='Events'&&!annotations.length&&x.action.type!=='absolve'?'':'<li><span>'+x.turn+' '+(x.side==='white'?'○':'●')+'</span><div><b>'+safe(x.text)+'</b>'+annotations.map(a=>'<small>'+safe(a)+'</small>').join('')+'</div></li>'
   }).join('')
-  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?difficulties[difficulty].name.toUpperCase()+' BOT':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||(canAct()&&actions.some(a=>a.type==='absolve')?'Tap a green circle to absolve that piece.':''))+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?button('offer','Offer draw')+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?button('rematch','Rematch'):'')+(session?.account&&mode==='online'&&seat&&!info?.open?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
+  return '<main class="game"><section><div class="crumb">'+button('home','← Lobby')+'<b>'+safe(mode==='online'?(info?.bot?(info.rated?'RANKED BOT · RATED':'RANKED QUEUE · UNRATED BOT'):info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY · BOT':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||(canAct()&&actions.some(a=>a.type==='absolve')?'Tap a green circle to absolve that piece.':''))+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
 function render(){
   const focused=document.activeElement instanceof HTMLElement&&document.activeElement.matches('[data-square]')
@@ -235,11 +240,11 @@ function showResult(celebrate=false){
   const title=!winner?'Draw':perspective?winner===perspective?'You win':'You lose':cap(winner)+' wins'
   const score=!winner?'½ – ½':winner==='white'?'1 – 0':'0 – 1'
   const winnerText=winner&&perspective?'<span class="result-winner">'+cap(winner)+' wins</span>':''
-  const again=mode==='online'?(seat?button('rematch','Rematch','primary'):''):button('restart','Play again','primary')
+  const again=mode==='online'?(seat?info?.bot?button('queue-again','Find another ranked match','primary'):button('rematch','Rematch','primary'):''):button('restart','Play again','primary')
   const victory=outcome==='win'&&celebrate&&!prefs.motion&&prefs.speed!=='off'
   modal('<section class="result-content '+outcome+(victory?' victory-celebrate '+(prefs.speed==='fast'?'victory-fast':''):'')+'" aria-labelledby="result-title">'+
     '<div class="result-emblem" aria-hidden="true"><span class="result-symbol">'+(outcome==='win'?'♛':outcome==='loss'?'♚':'½')+'</span></div>'+
-    '<h2 id="result-title">'+title+'</h2><p class="result-reason">'+safe(reason)+'</p>'+
+    '<h2 id="result-title">'+title+'</h2><p class="result-reason">'+safe(reason)+(info?.bot&&!info.rated&&mode==='online'?' · Unrated bot game':'')+'</p>'+
     '<p class="result-score" aria-label="White–Black score">'+score+winnerText+'</p>'+
     '<div class="result-actions">'+again+(m.log.length?button('review-result','Review game'):'')+
     button('home','Back to lobby','link')+'</div></section>','result')
@@ -297,8 +302,9 @@ function goHome(keepGuide=false){
   closeRoom();void cancel();mode='home';m=null;status='';review=null
   history.replaceState({},'',keepGuide?'/#how-to-play':'/');render()
 }
-function local(kind:string,control=presets[choice]){
+function local(kind:string,control=presets[choice],fromQuickPlay=false){
   closeRoom();void cancel();history.replaceState({},'','/')
+  quickBot=fromQuickPlay
   mode=kind;m=makeMatch(kind==='tutorial'?{seconds:0,increment:0}:control,Date.now())
   seat=null;selected=null;absolve=false;review=null;flipped=kind==='bot'&&human==='black';past=[];future=[];tab='Moves';status='';soundVersion=-1;focus=4
   if(kind==='tutorial'){
@@ -356,7 +362,7 @@ async function search(){
   if(queue||mode!=='home')return
   const c=presets[choice]
   if(!flexible&&!c.seconds){tell('Choose a timed control for matchmaking.');return}
-  const ticket={...c,rated,flexible}
+  const ticket={...c,rated,flexible,searchId:crypto.randomUUID()}
   const current=++generation
   queue=ticket
   const label=(ticket.rated?'Ranked':'Casual')+' · '+(ticket.flexible?'Any popular clock':clockLabel(ticket))
@@ -364,28 +370,46 @@ async function search(){
   let failures=0
   status='Searching '+label+'…'
   render()
-  const poll=async()=>{
+  const poll=async(acceptBot=false)=>{
+    if(queue!==ticket||current!==generation)return
+    clearTimeout(queueTimer)
+    if(acceptBot){
+      if(!rankedBotReady)return
+      rankedBotReady=false
+      render()
+    }
     try{
-      const found=await api<{id?:string}>('queue',ticket)
-      if(current!==generation)return
-      if(found.id){queue=null;await online(found.id)}
+      const found=await api<{id?:string;bot?:Control;botIn?:number;cancelled?:boolean}>('queue',{...ticket,acceptBot})
+      if(current!==generation||queue!==ticket)return
+      if(found.id){queue=null;rankedBotReady=false;await online(found.id)}
+      else if(found.bot){
+        queue=null
+        human=Math.random()<.5?'white':'black'
+        local('bot',found.bot,true)
+      }
+      else if(found.cancelled){queue=null;rankedBotReady=false;status='Search cancelled.';render()}
       else {
         failures=0
         const seconds=Math.floor((Date.now()-started)/1000)
-        tell('Searching '+label+' · '+seconds+'s'+(seconds>=20&&!ticket.flexible?' · Try Any popular clock for more opponents.':''))
+        const ready=ticket.rated&&found.botIn===0
+        if(ready!==rankedBotReady){rankedBotReady=ready;render()}
+        tell(ready?'Waiting for a human opponent. A Ranked Bot match is available.':
+          'Searching '+label+' · '+seconds+'s'+(found.botIn===undefined?'':' · Bot available in '+Math.ceil(found.botIn/1000)+'s'))
+        clearTimeout(queueTimer)
         queueTimer=window.setTimeout(poll,2100)
       }
     }catch(e){
-      if(current!==generation)return
+      if(current!==generation||queue!==ticket)return
       if(++failures<=3){tell('Reconnecting to '+label+'…');queueTimer=window.setTimeout(poll,3000);return}
-      queue=null;status=(e as Error).message;render()
+      queue=null;rankedBotReady=false;status=(e as Error).message;render()
     }
   }
+  pollQueue=poll
   await poll()
 }
 async function cancel(){
   const ticket=queue
-  queue=null;generation++;clearTimeout(queueTimer)
+  queue=null;rankedBotReady=false;pollQueue=undefined;generation++;clearTimeout(queueTimer)
   if(ticket){await api('queue',{...ticket,cancel:true}).catch(()=>{});if(mode==='home'){status='';render()}}
 }
 function animateVanished(pieces:readonly Piece[]):number{
@@ -515,6 +539,7 @@ function offlineStep(side:Side,action:Command,roll?:()=>number){
 function bot(){
   if(mode!=='bot'||!m||m.game.side===human||m.game.result)return
   const current=m
+  const level=botLevel()
   botAgent?.terminate()
   const worker=new Worker(new URL('./bot-worker.ts',import.meta.url),{type:'module'})
   botAgent=worker
@@ -534,14 +559,14 @@ function bot(){
     if(botAgent!==worker||mode!=='bot'||m!==current)return
     botAgent=null
     void import('./bot.ts').then(({chooseMove})=>{
-      if(mode==='bot'&&m===current)commit(chooseMove(current.game,difficulty))
+      if(mode==='bot'&&m===current)commit(chooseMove(current.game,level))
     }).catch(()=>tell('The bot could not choose a move. Try restarting the game.'))
   }
-  worker.postMessage({game:current.game,difficulty})
+  worker.postMessage({game:current.game,difficulty:level})
 }
 function botSetup(){
   modal('<h2>Practice against a bot</h2><form id="bot-form"><fieldset><legend>Difficulty</legend>'+
-    Object.entries(difficulties).map(([key,value])=>'<label class="bot-choice"><input type="radio" name="difficulty" value="'+key+'" '+(key===difficulty?'checked':'')+'><span><b>'+value.name+'</b><small>'+value.description+'</small></span></label>').join('')+
+    Object.entries(difficulties).filter(([key])=>key!=='ranked').map(([key,value])=>'<label class="bot-choice"><input type="radio" name="difficulty" value="'+key+'" '+(key===difficulty?'checked':'')+'><span><b>'+value.name+'</b><small>'+value.description+'</small></span></label>').join('')+
     '</fieldset><label>Play as <select name="color"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select></label> <button class="primary">Start game</button></form>')
 }
 function signIn(){
@@ -648,7 +673,7 @@ async function send(action:Command){
     if(lesson===0&&(action.type!=='move'||action.from!==10||action.to!==27)){tell('Capture the pawn on d4 with the knight on c2.');return}
     if(lesson===1&&(action.type!=='absolve'||action.from!==18||action.to!==27)){tell('Select the bishop on c3, tap the green circle on d4, then choose Absolve.');return}
   }
-  const side=action.type==='accept'||action.type==='decline'?opposite(m.offer??m.game.side):m.game.side
+  const side=mode==='bot'&&action.type==='resign'?human:action.type==='accept'||action.type==='decline'?opposite(m.offer??m.game.side):m.game.side
   if(!offlineStep(side,action,mode==='tutorial'?()=>1:undefined))return
   if(mode==='bot')bot()
   if(mode==='tutorial'){
@@ -726,11 +751,13 @@ async function handle(action:string){
     case 'email-confirm':await finishEmail();return
     case 'link-email':linkEmail();return
     case 'passkey-login':await passkey('login');return
-    case 'restart':local(mode,m?.control);return
+    case 'restart':local(mode,m?.control,quickBot);return
     case 'result':showResult();return
     case 'review-result':
       review=Math.max(0,(m?.log.length??1)-1);selected=null;absolve=false;tab='Moves';render();return
     case 'queue':await search();return
+    case 'ranked-bot':await pollQueue?.(true);return
+    case 'queue-again':goHome();rated=true;await search();return
     case 'cancel':await cancel();return
     case 'friend':{
       await login();const result=await api<{id:string}>('rooms',mode==='online'&&m?m.control:presets[choice]);await online(result.id);return
@@ -816,7 +843,7 @@ root.addEventListener('submit',event=>{
     event.preventDefault()
     const data=new FormData(form)
     const value=data.get('difficulty')
-    if(typeof value!=='string'||!(value in difficulties))return
+    if(typeof value!=='string'||value==='ranked'||!Object.hasOwn(difficulties,value))return
     difficulty=value as Difficulty
     const color=data.get('color')
     human=color==='random'?(Math.random()<.5?'white':'black'):color==='black'?'black':'white'

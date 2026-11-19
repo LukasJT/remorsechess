@@ -31,6 +31,8 @@ Run the smoke test against an already running Worker. Set `REMORSE_TEST_URL` to 
 - `src/rating.ts` implements Glicko-2 independently from the published algorithm. It starts each pool at 1500, uses one game per rating period, and inflates deviation for inactivity. This implementation has no color adjustment. [Algorithm specification](https://www.glicko.net/glicko/glicko2.pdf) · [Lichess rating reference](https://lichess.org/page/rating-systems)
 - The playable client, pixel sprites, generated audio, and settings are in `src/client.ts`. Color and layout live in `src/style.css`.
 - Account sessions, matchmaking, ratings, and game indexes are stored in the lobby's SQLite Durable Object. Individual game state lives in separate room objects. Deploy load testing is required before advertising a capacity target.
+- Matchmaking prioritizes human opponents. Quick Play falls back to a browser bot after eight seconds. After 20 seconds the Ranked queue offers a server-played bot while it continues looking for a human. Both bot opponents are labeled.
+- Ranked bot games with a starting clock of at least 60 seconds can move a player's rating by up to 12 points per game. At most three count per UTC day across all pools. The bot uses a fixed 1500 reference and bot results do not lower rating deviation or count toward leaderboard eligibility. Human-vs-human games use the normal Glicko-2 update.
 
 ## Cloudflare deployment
 

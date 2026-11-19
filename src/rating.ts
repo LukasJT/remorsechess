@@ -1,5 +1,8 @@
 export type Rating = { rating:number; rd:number; volatility:number; games:number; updated:number }
 export const defaultRating = (): Rating => ({rating:1500,rd:350,volatility:0.06,games:0,updated:0})
+export const botRating:Rating={...defaultRating(),rd:90}
+export const dailyRatedBotGames=3
+export const botRatingLimit=12
 const scale = 173.7178
 export function deviation(r:Rating, now:number) {
   const periods = r.updated ? Math.max(0,(now-r.updated)/86_400_000) : 0
@@ -35,4 +38,10 @@ export function updateRating(p:Rating, opponent:Rating, score:number, now:number
 export function pool(seconds:number, increment:number) {
   const estimated=seconds+40*increment
   return estimated<180?'Bullet':estimated<600?'Blitz':'Rapid'
+}
+export function updateBotRating(p:Rating,score:number,now:number):Rating{
+  const effective={...p,rd:Math.min(deviation(p,now),110),updated:now}
+  const candidate=updateRating(effective,botRating,score,now)
+  const change=Math.max(-botRatingLimit,Math.min(botRatingLimit,candidate.rating-p.rating))
+  return {...p,rating:p.rating+change}
 }

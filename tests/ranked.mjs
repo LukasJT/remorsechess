@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto'
 import { encodeCBOR } from '@levischuck/tiny-cbor'
+import { legal } from '../src/rules.ts'
 
 const base=process.env.REMORSE_TEST_URL??'http://127.0.0.1:8787'
 const hostname=new URL(base).hostname
@@ -76,18 +77,59 @@ assert.equal(view.room.ratings.white.rating,1500)
 const opponent=await b(room)
 assert.notEqual(view.seat,opponent.seat)
 await a(room+'/command',{id:crypto.randomUUID(),version:view.match.version,action:{type:'resign'}})
-for(let attempts=0;attempts<20;attempts++){
-  const [left,right]=await Promise.all([a('profile'),b('profile')])
-  if(left.ratings.Blitz && right.ratings.Blitz){
-    assert.equal(left.ratings.Blitz.games,1);assert.equal(right.ratings.Blitz.games,1)
-    assert.ok(left.ratings.Blitz.rating<1500)
-    assert.ok(right.ratings.Blitz.rating>1500)
-    assert.equal(left.history[0].id,id)
-    const repeated=await a('profile')
-    assert.equal(repeated.ratings.Blitz.games,1)
-    console.log('Ranked smoke passed: verified passkeys, sign-out/sign-in, rated pairing, and one rating update per account.')
-    process.exit(0)
+async function waitFor(check,description){
+  for(let attempts=0;attempts<60;attempts++){
+    const value=await check()
+    if(value)return value
+    await new Promise(resolve=>setTimeout(resolve,200))
   }
-  await new Promise(resolve=>setTimeout(resolve,200))
+  throw Error(description)
 }
-throw Error('Ranked result never finalized')
+const [left,right]=await waitFor(async()=>{
+  const profiles=await Promise.all([a('profile'),b('profile')])
+  if(profiles.every(p=>p.ratings.Blitz))return profiles
+},'Ranked result never finalized')
+assert.equal(left.ratings.Blitz.games,1);assert.equal(right.ratings.Blitz.games,1)
+assert.ok(left.ratings.Blitz.rating<1500)
+assert.ok(right.ratings.Blitz.rating>1500)
+assert.equal(left.history[0].id,id)
+assert.equal((await a('profile')).ratings.Blitz.games,1)
+console.log('Ranked smoke passed: verified passkeys, sign-out/sign-in, rated pairing, and one rating update per account.')
+
+const botTicket={seconds:351,increment:2,rated:true,searchId:crypto.randomUUID()}
+const early=await a('queue',{...botTicket,acceptBot:true})
+assert.ok(early.botIn>0)
+assert.equal(early.id,undefined)
+await new Promise(resolve=>setTimeout(resolve,20_100))
+const offered=await a('queue',botTicket)
+assert.equal(offered.botIn,0)
+assert.equal(offered.id,undefined)
+const {id:botId}=await a('queue',{...botTicket,acceptBot:true})
+assert.ok(botId)
+assert.equal((await a('queue',{...botTicket,acceptBot:true})).id,botId)
+const botRoom='room/'+botId
+const human=await waitFor(async()=>{
+  const state=await a(botRoom)
+  if(state.match.game.side===state.seat)return state
+},'The bot did not play as White')
+assert.equal(human.room.rated,true)
+assert.notEqual(human.seat,human.room.bot)
+assert.equal(human.room[human.room.bot],'Ranked Bot')
+const action=legal(human.match.game).find(a=>a.type==='move')
+assert.ok(action)
+const played=await a(botRoom+'/command',{id:crypto.randomUUID(),version:human.match.version,action})
+const answered=await waitFor(async()=>{
+  const state=await a(botRoom)
+  if(state.match.version>played.match.version&&state.match.game.side===state.seat)return state
+},'The server bot did not answer the human move')
+assert.equal(answered.match.log.at(-1).event.side,human.room.bot)
+await a(botRoom+'/command',{id:crypto.randomUUID(),version:answered.match.version,action:{type:'resign'}})
+const botResult=await waitFor(async()=>{
+  const profile=await a('profile')
+  if(profile.history[0]?.id===botId)return profile
+},'Bot result never finalized')
+assert.ok(botResult.history[0].delta<0&&botResult.history[0].delta>=-12)
+assert.equal(botResult.ratings.Blitz.games,left.ratings.Blitz.games)
+assert.equal(botResult.ratings.Blitz.rd,left.ratings.Blitz.rd)
+assert.equal((await b('profile')).ratings.Blitz.rating,right.ratings.Blitz.rating)
+console.log('Ranked bot smoke passed: opt-in, labeled room, server moves, and capped rating without changing human qualification.')

@@ -1,7 +1,8 @@
 import { DurableObject } from 'cloudflare:workers'
-import { command, compatibleClock, expire, makeMatch, remaining, type Command, type Control, type Entry, type Match, type SearchClock } from './match.ts'
-import { defaultRating, deviation, pool, updateRating, type Rating } from './rating.ts'
+import { command, compatibleClock, expire, makeMatch, quickClock, remaining, type Command, type Control, type Entry, type Match, type SearchClock } from './match.ts'
+import { botRating, dailyRatedBotGames, defaultRating, deviation, pool, updateBotRating, updateRating, type Rating } from './rating.ts'
 import { CURRENT_RULES,type Side } from './rules.ts'
+import { chooseMove } from './bot.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
 import { banner } from './ads.ts'
@@ -11,8 +12,8 @@ type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
 interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string }
 type Identity = { id:string; name:string; account:boolean }
 type Seats = Partial<Record<Side,Identity>>
-type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string }
-type Ticket = { owner:Identity; id:string; expires:number; clock:SearchClock; created:number }
+type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side }
+type Ticket = { owner:Identity; id:string; expires:number; clock:SearchClock; created:number; searchId?:string; cancelled?:boolean; bot?:Control }
 type PublicGame = { id:string; white:string; black:string; control:Control; rated:boolean }
 type Profile = { user:Identity; ratings:Record<string,Rating>; history:{id:string; result:string; pool:string; delta?:number}[] }
 type Final = { room:RoomInfo; reason:string; winner:Side|null }
@@ -24,6 +25,7 @@ const setCookie = (req:Request,name:string,value:string,maxAge:number) => name+'
 const lobby = (env:Env) => env.LOBBY.getByName('global-v1')
 const room = (env:Env,id:string) => env.ROOMS.getByName(id)
 const oppositeSeat=(s:Side):Side=>s==='white'?'black':'white'
+const botWait=(rated:boolean)=>rated?20_000:8_000
 const seatOf = (info:RoomInfo,player:Identity):Side|null => info.seats.white?.id===player.id?'white':info.seats.black?.id===player.id?'black':null
 function parseControl(raw:Partial<Control>): Control|null {
   const {seconds,increment}=raw
@@ -63,11 +65,14 @@ export class Room extends DurableObject<Env> {
     return {room:{...visible,white:seats.white?.name,black:seats.black?.name},seat:player?seatOf(info,player):undefined,
       match:{...match,game:{...match.game,seen:{}},log},now:Date.now()}
   }
+  private nextAlarm(info:RoomInfo,m:Match){
+    if(m.game.result)return Date.now()+250
+    if(!m.start)return info.created+30*60_000
+    const timeout=m.start+(m.control.seconds?m.clock[m.game.side]:24*60*60_000)
+    return info.bot===m.game.side?Math.min(timeout,m.start+250):timeout
+  }
   private async schedule(info:RoomInfo,m:Match){
-    if(m.game.result) await this.ctx.storage.setAlarm(Date.now()+250)
-    else if(!m.start) await this.ctx.storage.setAlarm(info.created+30*60_000)
-    else if(m.control.seconds) await this.ctx.storage.setAlarm(m.start+m.clock[m.game.side])
-    else await this.ctx.storage.setAlarm(m.start+24*60*60_000)
+    await this.ctx.storage.setAlarm(this.nextAlarm(info,m))
   }
   private async save(info:RoomInfo,match:Match,receipt?:{seat:Side;ids:string[]}) {
     const newEvent=match.log.at(-1)
@@ -77,8 +82,7 @@ export class Room extends DurableObject<Env> {
       if(receipt) await txn.put('commands/'+receipt.seat,receipt.ids)
       if(newEvent) await txn.put('event/'+String(match.version).padStart(8,'0'),newEvent)
       if(match.game.result) await txn.put<Final>('pending',{room:info,...match.game.result})
-      const next=match.game.result ? Date.now()+250 : match.control.seconds ? match.start+match.clock[match.game.side] : match.start+24*60*60_000
-      await txn.setAlarm(next)
+      await txn.setAlarm(this.nextAlarm(info,match))
     })
     const update=JSON.stringify({version:match.version})
     for(const ws of this.ctx.getWebSockets()) {
@@ -111,6 +115,7 @@ export class Room extends DurableObject<Env> {
           await this.save(info,{...match,start:Date.now(),version:match.version+1})
         } else if(!seat) return problem('Both seats are taken',409)
       } else if(action==='report' && req.method==='POST'){
+        if(info.bot)return problem('This opponent is a bot',409)
         const other=seat&&info.seats[oppositeSeat(seat)]
         if(!player.account||!other) return problem('A signed-in player can report an opponent',403)
         const reason=data.reason
@@ -123,12 +128,13 @@ export class Room extends DurableObject<Env> {
         }
         return json({reported:true})
       } else if(action==='block' && req.method==='POST'){
+        if(info.bot)return problem('This opponent is a bot',409)
         const other=seat&&info.seats[oppositeSeat(seat)]
         if(!player.account||!other?.account) return problem('Both players must have accounts',403)
         await lobby(this.env).block(player.id,other.id)
         return json({blocked:true})
       } else if(action==='rematch' && req.method==='POST'){
-        if(!seat || !match.game.result || !info.seats.white || !info.seats.black) return problem('Rematch is unavailable',409)
+        if(info.bot || !seat || !match.game.result || !info.seats.white || !info.seats.black) return problem('Rematch is unavailable',409)
         const existing=await this.ctx.storage.get<string>('rematch')
         if(existing) return json({id:existing})
         const nextId=token()
@@ -145,6 +151,7 @@ export class Room extends DurableObject<Env> {
         if(last.includes(id)) return json(await this.snapshot(player))
         if(data.version!==match.version) return problem('Position changed. Sync and retry.',409)
         const parsed=parseAction(data.action)
+        if(info.bot&&parsed&&['offer','accept','decline'].includes(parsed.type))return problem('Draw offers are unavailable against a bot',422)
         const next=parsed && command(match,seat,parsed,Date.now())
         if(!next) return problem('That action is unavailable',422)
         await this.save(info,next,{seat,ids:[...last.slice(-63),id]})
@@ -166,6 +173,13 @@ export class Room extends DurableObject<Env> {
       if(!match.game.result){
         const timed=expire(match,Date.now())
         if(timed!==match) await this.save(info,timed)
+        else if(info.bot===match.game.side){
+          const time=remaining(match,info.bot,Date.now())
+          const action=chooseMove(match.game,time<500?'rookie':time<2500?'tactical':'ranked')
+          const moved=action&&command(match,info.bot,action,Date.now())
+          if(!moved)throw Error('Ranked bot could not play in an active position')
+          await this.save(info,moved)
+        }
         else if(!match.control.seconds) await this.save(info,{...match,game:{...match.game,result:{winner:null,reason:'Inactive room expired'}},start:0,version:match.version+1})
         else await this.schedule(info,match)
       }
@@ -301,7 +315,7 @@ export class Lobby extends DurableObject<Env> {
     const records=[...(await this.ctx.storage.list<Profile>({prefix:'profile/',limit:1000})).values()]
     return Object.fromEntries(['Bullet','Blitz','Rapid'].map(group=>[group,records.filter(p=>p.ratings[group] && deviation(p.ratings[group],Date.now())<=110).sort((a,b)=>b.ratings[group].rating-a.ratings[group].rating).slice(0,20).map(p=>({name:p.user.name,rating:Math.round(p.ratings[group].rating)}))]))
   }
-  async search(player:Identity,clock:SearchClock,rated:boolean,cancel=false){
+  async search(player:Identity,clock:SearchClock,rated:boolean,cancel=false,searchId?:string,acceptBot=false){
     return this.ctx.blockConcurrencyWhile(async()=>{
       const activeKey='active/'+player.id
       const active=await this.ctx.storage.get<string>(activeKey)
@@ -312,17 +326,25 @@ export class Lobby extends DurableObject<Env> {
       const now=Date.now()
       const directory='search/'+(rated?'rated/':'casual/')
       const myKey=directory+player.id
+      const mine=await this.ctx.storage.get<Ticket>(myKey)
       if(cancel){
-        await this.ctx.storage.delete(myKey)
+        if(mine && mine.searchId!==searchId)return {}
+        if(searchId){
+          await this.ctx.storage.put<Ticket>(myKey,{owner:player,id:mine?.id??token(),clock,created:now,expires:now+90_000,searchId,cancelled:true})
+        }else await this.ctx.storage.delete(myKey)
         return {}
       }
+      const same=mine&&mine.expires>now&&mine.searchId===searchId&&compatibleClock(clock,mine.clock)!==null&&
+        (clock==='any')===(mine.clock==='any')
+      if(same && mine.cancelled)return {cancelled:true}
+      if(same && mine.bot)return {bot:mine.bot}
       await this.ctx.storage.delete('search/'+(rated?'casual/':'rated/')+player.id)
       const entries=await this.ctx.storage.list<Ticket>({prefix:directory})
       const stale:string[]=[]
       const eligible:{key:string;ticket:Ticket;control:Control}[]=[]
       for(const [key,ticket] of entries){
         if(ticket.expires<=now){stale.push(key);continue}
-        if(key===myKey)continue
+        if(key===myKey||ticket.cancelled||ticket.bot)continue
         const control=compatibleClock(clock,ticket.clock)
         if(control)eligible.push({key,ticket,control})
       }
@@ -337,10 +359,31 @@ export class Lobby extends DurableObject<Env> {
         if(records.size===0){pair=entry;break}
       }
       if(!pair){
-        const mine=entries.get(myKey)
-        const same=mine&&mine.expires>now&&JSON.stringify(mine.clock)===JSON.stringify(clock)
-        await this.ctx.storage.put<Ticket>(myKey,{owner:player,id:same?mine.id:token(),clock,created:same?mine.created:now,expires:now+90_000})
-        return {queued:true,rated,flexible:clock==='any'}
+        const created=same?mine.created:now
+        const botIn=searchId?Math.max(0,botWait(rated)-(now-created)):undefined
+        const ticketId=same?mine.id:token()
+        const control=clock==='any'?quickClock:clock
+        if(rated&&acceptBot&&botIn===0){
+          const bot= Math.random()<.5?'white':'black'
+          const side=oppositeSeat(bot)
+          const day=Math.floor(now/86_400_000)
+          const usageKey='rated-bot/'+player.id
+          const usage=await this.ctx.storage.get<{day:number;count:number}>(usageKey)
+          const count=usage?.day===day?usage.count:0
+          const counts=control.seconds>=60&&count<dailyRatedBotGames
+          const seats:Seats={[side]:player,[bot]:{id:'ranked-bot',name:'Ranked Bot',account:false}}
+          const rating=(await this.profile(player)).ratings[pool(control.seconds,control.increment)]??defaultRating()
+          await room(this.env,ticketId).initialize({id:ticketId,seats,rated:counts,ratings:{[side]:rating,[bot]:botRating},control,created:now,open:false,bot})
+          await this.ctx.storage.transaction(async txn=>{
+            await txn.delete(myKey)
+            await txn.put(activeKey,ticketId)
+            if(counts)await txn.put(usageKey,{day,count:count+1})
+          })
+          return {id:ticketId}
+        }
+        const bot=!rated&&botIn===0?control:undefined
+        await this.ctx.storage.put<Ticket>(myKey,{owner:player,id:ticketId,clock,created,expires:now+90_000,searchId,bot})
+        return bot?{bot}:{queued:true,rated,flexible:clock==='any',botIn}
       }
       const {ticket:opponent,control}=pair
       const id=opponent.id
@@ -370,7 +413,7 @@ export class Lobby extends DurableObject<Env> {
       const group=pool(final.room.control.seconds,final.room.control.increment)
       const now=Date.now()
       const starts=accounts.map(p=>p?.ratings[group] ?? defaultRating())
-      const rated=final.room.rated && Boolean(accounts[0] && accounts[1])
+      const rated=final.room.rated && Boolean(final.room.bot || (accounts[0] && accounts[1]))
       for(let i=0;i<2;i++){
         const player=players[i], profile=accounts[i]
         if(!player) continue
@@ -378,7 +421,7 @@ export class Lobby extends DurableObject<Env> {
         if(!profile) continue
         const score=final.winner===null?0.5:final.winner===(i===0?'white':'black')?1:0
         const old=starts[i]
-        const next=rated?updateRating(old,starts[1-i],score,now):old
+        const next=rated?(final.room.bot?updateBotRating(old,score,now):updateRating(old,starts[1-i],score,now)):old
         if(rated) profile.ratings[group]=next
         profile.history=[{id:final.room.id,result:score===1?'Win':score===0?'Loss':'Draw',pool:group,delta:rated?Math.round(next.rating)-Math.round(old.rating):undefined},...profile.history].slice(0,100)
         await txn.put('profile/'+player.id,profile)
@@ -578,14 +621,16 @@ export default {
     if(endpoint==='watch' && req.method==='GET') return json(await lobby(env).watch())
     if(endpoint==='leaders' && req.method==='GET') return json(await lobby(env).leaders())
     if((endpoint==='rooms' || endpoint==='queue') && req.method==='POST'){
-      const body=await req.json<Partial<Control>&{rated?:boolean;cancel?:boolean;flexible?:boolean}>().catch(()=>null)
+      const body=await req.json<Partial<Control>&{rated?:boolean;cancel?:boolean;flexible?:boolean;searchId?:string;acceptBot?:boolean}>().catch(()=>null)
       const control=body&&parseControl(body)
       if(!control) return problem('Choose a valid time control')
       const rated=body?.rated===true
       if(endpoint==='queue'){
         if(!control.seconds && body?.flexible!==true) return problem('Matchmaking requires a timed game')
         if(rated && !player.account) return problem('Sign in for ranked play',401)
-        return json(await lobby(env).search(player,body?.flexible===true?'any':control,rated,body?.cancel===true))
+        const searchId=body?.searchId
+        if(searchId!==undefined&&(typeof searchId!=='string'||!/^[a-f0-9-]{36}$/.test(searchId)))return problem('Invalid search ID')
+        return json(await lobby(env).search(player,body?.flexible===true?'any':control,rated,body?.cancel===true,searchId,body?.acceptBot===true))
       }
       const id=token()
       await room(env,id).initialize({id,control,seats:{white:player},rated:false,created:Date.now(),open:true})
