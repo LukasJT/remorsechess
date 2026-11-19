@@ -34,6 +34,7 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 @media(max-width:345px){.advert.banner.mobile{display:none}}
 
 .sponsor-slot{max-width:1130px;margin:0 auto 20px;padding:0 12px}.sponsor-slot:empty{display:none}
+.sponsor-slot iframe { color-scheme: light; }
 .match-sponsors .game { max-width: min(1080px, calc(100% - 352px)); }
 .sponsor-slot[data-state="match"] {
   position: absolute;

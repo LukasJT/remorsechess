@@ -9,7 +9,7 @@ export function banner(format:string):Response{
   const unit=units[format as keyof typeof units]
   const nonce=crypto.randomUUID().replaceAll('-','')
   const html='<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Advertisement</title>'+
-    '<style nonce="'+nonce+'">html,body{padding:0;margin:0;overflow:hidden;background:transparent}iframe{display:block;border:0}</style><body>'+
+    '<style>html,body{padding:0;margin:0;overflow:hidden;background:transparent}iframe{display:block;border:0}</style><body>'+
     // Adsterra deletes this property after reading the placement options.
     '<script nonce="'+nonce+'">window.atOptions='+JSON.stringify({...unit,format:'iframe',params:{}})+'</script>'+
     '<script nonce="'+nonce+'" src="https://bauval.org/22/'+unit.key+'"></script></body></html>'
@@ -17,7 +17,7 @@ export function banner(format:string):Response{
     'content-type':'text/html; charset=utf-8',
     'cache-control':'no-store',
     'x-robots-tag':'noindex',
-    'content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"' 'strict-dynamic'; style-src 'nonce-"+nonce+"'; frame-src https:; img-src https: data:; connect-src https:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-popups",
+    'content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"' 'strict-dynamic'; style-src 'unsafe-inline'; frame-src https:; img-src https: data:; connect-src https:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-popups",
     'referrer-policy':'strict-origin-when-cross-origin',
   }})
 }
