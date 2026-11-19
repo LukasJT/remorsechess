@@ -34,6 +34,29 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 @media(max-width:345px){.advert.banner.mobile{display:none}}
 
 .sponsor-slot{max-width:1130px;margin:0 auto 20px;padding:0 12px}.sponsor-slot:empty{display:none}
+.match-sponsors .game { max-width: min(1080px, calc(100% - 352px)); }
+.sponsor-slot[data-state="match"] {
+  position: absolute;
+  inset: 96px 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  max-width: 1440px;
+  margin: 0 auto;
+  pointer-events: none;
+}
+.match-sponsor {
+  display: grid;
+  justify-items: center;
+  gap: .4rem;
+  width: 160px;
+  color: var(--muted);
+  font: 600 .63rem var(--mono);
+  letter-spacing: .09em;
+  pointer-events: auto;
+}
+.match-sponsor iframe { display: block; width: 160px; height: 300px; border: 0; }
+.match-sponsor.tall iframe { height: 600px; }
 
 .queue-preference{margin-bottom:.5rem}.queue-preference button{width:100%;text-align:left}#email-start,#email-finish{margin-bottom:1rem}#email-start input,#email-finish input{max-width:100%;padding:.4rem}#email-status{margin:.6rem 0;color:var(--gold)}
 .piece img.classic-pawn{width:.77em;height:.83em;image-rendering:auto}

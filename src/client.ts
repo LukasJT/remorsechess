@@ -87,19 +87,29 @@ let audio:AudioContext|undefined, soundVersion=-1, drag:number|null=null, focus=
 const bannerHost=document.createElement('div')
 bannerHost.className='sponsor-slot'
 document.body.appendChild(bannerHost)
+function sponsorFrame(format:string,title:string){
+  return '<iframe title="'+title+'" loading="lazy" sandbox="allow-scripts allow-popups" referrerpolicy="strict-origin-when-cross-origin" src="/banner/'+format+'"></iframe>'
+}
 function renderSponsor(){
   const width=document.documentElement.clientWidth
   const format=width>=765?'desktop':width>=346?'mobile':'hidden'
-  const state=mode!=='home'?'hidden':prefs.ads?format:'opt-in'
+  const inMatch=(mode==='online'||mode==='local'||mode==='bot')&&m?.start&&!m.game.result
+  const state=mode==='home'?(prefs.ads?format:'opt-in'):prefs.ads&&inMatch&&width>=1260?'match':'hidden'
   if(bannerHost.dataset.state===state)return
   bannerHost.dataset.state=state
+  document.body.classList.toggle('match-sponsors',state==='match')
   if(state==='hidden'){bannerHost.replaceChildren();return}
   if(state==='opt-in'){
     bannerHost.innerHTML='<aside class="advert"><span>SPONSOR</span>'+button('show-ads','Show sponsor banner','link')+'</aside>'
     bannerHost.querySelector('button')?.addEventListener('click',()=>{prefs.ads=true;savePrefs();renderSponsor()})
     return
   }
-  bannerHost.innerHTML='<aside class="advert banner '+state+'"><span>ADVERTISEMENT</span><iframe title="Sponsor banner" loading="lazy" sandbox="allow-scripts allow-popups" referrerpolicy="strict-origin-when-cross-origin" src="/banner/'+state+'"></iframe></aside>'
+  if(state==='match'){
+    bannerHost.innerHTML='<aside class="match-sponsor"><span>ADVERTISEMENT</span>'+sponsorFrame('match-left','Left sponsor banner')+'</aside>'+
+      '<aside class="match-sponsor tall"><span>ADVERTISEMENT</span>'+sponsorFrame('match-right','Right sponsor banner')+'</aside>'
+    return
+  }
+  bannerHost.innerHTML='<aside class="advert banner '+state+'"><span>ADVERTISEMENT</span>'+sponsorFrame(state,'Sponsor banner')+'</aside>'
 }
 window.addEventListener('resize',renderSponsor)
 async function api<T>(path:string,data?:unknown):Promise<T>{
@@ -261,7 +271,7 @@ function scheduleResult(match:Match,delay=0,celebrate=true){
   },delay)
 }
 function settings(){
-  const checks=Object.entries({yells:'Capture yells',diceSound:'Dice sounds',uiSound:'Move sounds',diceMotion:'Dice animation',moodMotion:'Piece mood animation',ads:'Sponsor banner',last:'Last move highlight',drag:'Drag pieces',shake:'Screen shake',flash:'Impact flash',motion:'Reduced motion',crt:'Scanlines',coords:'Coordinates',hints:'Move hints',autoFlip:'Auto-flip local board',confirm:'Confirm friendly captures'})
+  const checks=Object.entries({yells:'Capture yells',diceSound:'Dice sounds',uiSound:'Move sounds',diceMotion:'Dice animation',moodMotion:'Piece mood animation',ads:'Sponsor banners',last:'Last move highlight',drag:'Drag pieces',shake:'Screen shake',flash:'Impact flash',motion:'Reduced motion',crt:'Scanlines',coords:'Coordinates',hints:'Move hints',autoFlip:'Auto-flip local board',confirm:'Confirm friendly captures'})
     .map(([key,label])=>'<label><input type="checkbox" data-pref="'+key+'" '+(prefs[key as keyof typeof prefs]?'checked':'')+'>'+label+'</label>').join('')
   const selects=Object.entries({blood:['off','low','full'],speed:['off','fast','normal'],theme:['parchment','slate'],pieces:['pixel','classic']}).map(([key,opts])=>'<label>'+key+' <select data-pref="'+key+'">'+opts.map(v=>'<option '+(v===prefs[key as keyof typeof prefs]?'selected':'')+'>'+v+'</option>').join('')+'</select></label>').join('')
   modal('<h2>Settings</h2><div class="settings"><label>Volume <input data-pref="volume" type="range" min="0" max="100" value="'+prefs.volume+'"></label>'+button('quiet','Quiet mode')+checks+selects+'</div>','settings')

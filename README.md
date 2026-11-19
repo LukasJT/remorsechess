@@ -68,7 +68,7 @@ Rookie, Tactician, and Grandmaster run on the player's device in a browser worke
 
 ### Banner placement
 
-The desktop 728×90 and mobile 320×50 Adsterra units are served on isolated banner routes. The iframe is available below the lobby with local opt-in and can be disabled in Settings. No ad loads inside a match.
+Adsterra banners are served in sandboxed iframes on isolated banner routes. Players can enable or disable them in Settings on each device. The lobby uses 728×90 on desktop and 320×50 on mobile. On wide screens, active matches can show 160×300 and 160×600 banners beside the game. The side banners leave the board and move log clear and are hidden on narrow screens and during the tutorial.
 
 ## Launch status
 
