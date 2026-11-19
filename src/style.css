@@ -160,6 +160,7 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .self-capture{position:absolute;inset:0;z-index:3;display:grid;place-items:center;pointer-events:none}
 .remorse-ash{position:absolute;z-index:4;top:54%;left:50%;width:5px;height:5px;background:#e5b7ff;box-shadow:0 0 5px #5e3c64;pointer-events:none}
 #modal[data-kind="result"]{width:min(430px,calc(100% - 24px));padding:0}
+#modal[data-kind="result"] .close{z-index:1}
 .result-content{text-align:center;padding:24px 22px 20px;border-top:5px solid var(--gold)}
 .result-content.loss{border-top-color:var(--red)}.result-content.draw{border-top-color:var(--muted)}
 .result-symbol{display:block;color:var(--gold);font:3.6rem/1 "Segoe UI Symbol",system-ui;margin-bottom:10px}
