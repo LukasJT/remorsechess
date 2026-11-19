@@ -84,8 +84,6 @@ let botAgent:Worker|null=null
 let lessonTimer=0
 let resultTimer=0
 let choice=3, flexible=true, queue:SearchTicket|null=null, queueTimer=0, generation=0, rated=false
-let rankedBotReady=false
-let pollQueue:((acceptBot?:boolean)=>Promise<void>)|undefined
 let playTab:'live'|'daily'='live'
 let dailyChoice:number=3
 let dailyLobby:DailyLobby|null=null, dailyBusy=false, dailyLoading=false, dailyMessage=''
@@ -180,13 +178,13 @@ function connectPresence(){
   }
 }
 function livePanel(){
-  return '<div class="queue-preference"><button data-do="quick-clock" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button></div>'+
-    '<div class="clock-groups">'+liveGroups.map(([label,indices])=>'<section><h3>'+label+'</h3><div class="clocks">'+clocks([...indices],false)+'</div></section>').join('')+'</div>'+
+  return '<div class="queue-preference"><button data-do="quick-clock" aria-controls="clock-groups" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button>'+
+    (flexible&&!queue?'<small class="clock-toggle-hint">Tap again to choose a fixed clock.</small>':'')+'</div>'+
+    '<div id="clock-groups" class="clock-groups'+(flexible?' flexible-clock':'')+'">'+liveGroups.map(([label,indices])=>'<section><h3>'+label+'</h3><div class="clocks">'+clocks([...indices],false)+'</div></section>').join('')+'</div>'+
     button('more','Custom clock & untimed','link')+
     (!flexible&&(choice===11||choice>=13)?'<small>Selected: '+(presets[choice].seconds?clockLabel(presets[choice]):'Untimed')+'</small>':'')+
     (session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+
-    button(queue?'cancel':'queue',queue?'Cancel search':rated?'Find ranked match':flexible?'Quick match':'Find online match','primary full')+
-    (rankedBotReady?button('ranked-bot','Play Ranked Bot','primary full ranked-bot-button')+'<small>Up to 12 rating points per bot game. The first three eligible games each UTC day can count.</small>':'')+
+    button(queue?'cancel':'queue',queue?'Cancel search':rated?'Find ranked match':flexible?'Quick match':'Find match','primary full')+
     '<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p>'
 }
 function dailyList(){
@@ -228,7 +226,8 @@ function view(){
 }
 const canAct=()=>Boolean(m?.start&&!m.game.result&&!busy&&review===null&&(mode!=='tutorial'||m.game.side==='white'||lesson===3)&&(mode==='online'?seat===m.game.side:mode!=='bot'||m.game.side===human))
 function player(side:Side,v:Match){
-  const who=mode==='online'?info?.[side]??'Open seat':mode==='bot'&&side!==human?difficulties[botLevel()].name+' Bot':names[side]
+  const who=mode==='online'?(info?.bot===side?'Opponent':info?.[side]??'Open seat'):
+    mode==='bot'&&side!==human?(quickBot?'Opponent':difficulties[botLevel()].name+' Bot'):names[side]
   const rating=mode==='online'?info?.ratings?.[side]:undefined
   const displayRating=rating?' · '+Math.round(rating.rating)+(deviation(rating,Date.now())>110?'?':''):''
   return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'"><span class="icon '+side+'">♚</span><div><b>'+safe(who)+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+'</small></div><time id="clock-'+side+'">—</time></div>'
@@ -242,15 +241,17 @@ function game(){
   const face=latestCapture?.captureState?.originalRoll??latestCapture?.roll??rolled?.roll??5
   const reused=Boolean(latestCapture&&!latestCapture.roll)
   const moodLine=latestCapture?(resultMood?moodNames[resultMood]:'Capture recorded'):'One roll per piece'
-  const tray='<div class="die-row"><span id="die" aria-hidden="true">'+dice[face-1]+'</span><div><b id="dice-label">'+(latestCapture?(reused?'Original roll '+face+' · No reroll':'Rolled '+face):'Awaiting a capture')+'</b><small id="mood-line">'+moodLine+'</small></div></div>'
+  const tray='<div class="die-row" data-roll><span id="die" data-die aria-hidden="true">'+dice[face-1]+'</span><div><b data-roll-label>'+(latestCapture?(reused?'Original roll '+face+' · No reroll':'Rolled '+face):'Awaiting a capture')+'</b><small data-mood-line>'+moodLine+'</small></div></div>'
+  const compactRoll='<div class="mobile-roll" data-roll aria-hidden="true"><span data-die>'+dice[face-1]+'</span><span data-mood-line>'+(latestCapture?moodLine:'No captures')+'</span></div>'
   const p=selected===null?undefined:at(g,selected)
   const actions=p?legal(g,p.square):[]
+  const mouseDrag=prefs.drag&&matchMedia('(any-pointer: fine)').matches
   const board=(flipped?grid.slice().reverse():grid).map((sq,i)=>{
     const man=at(g,sq),target=prefs.hints&&actions.some(a=>a.type===(absolve?'absolve':'move')&&a.to===sq)
     const healer=canAct()&&actions.some(a=>a.type==='absolve'&&a.to===sq)
     const previous=prefs.last&&last?.action.type!=='end'&&[last?.action.from,last?.action.to].includes(sq)
     const classes=[(file(sq)+rank(sq))%2?'light':'dark',selected===sq?'selected':'',target&&!healer?(man?'target take':'target'):'',healer?'heal-target':'',previous?'last':'',man?.kind==='k'&&inCheck(g,man.side)?'check':''].join(' ')
-    return '<button tabindex="'+(sq===focus?0:-1)+'" aria-label="'+name(sq)+' '+(man?man.side+' '+labels[man.kind]+(man.roll?', '+moodNames[man.mood]:'')+(healer?', can heal':''):'empty')+'" class="sq '+classes+'" data-square="'+sq+'">'+(prefs.coords&&i%8===0?'<span class="rank">'+(rank(sq)+1)+'</span>':'')+(prefs.coords&&i>=56?'<span class="file">'+'abcdefgh'[file(sq)]+'</span>':'')+(man?'<span draggable="'+prefs.drag+'" class="piece '+man.side+' '+man.mood+'">'+art(man.kind,man.side)+(man.roll?'<b class="badge '+man.mood+'">'+(man.rescue||{normal:'·',devastated:'!',guilty:'×',psychopath:'+',bloodlust:'▲'}[man.mood])+'</b>':'')+'</span>':'')+'</button>'
+    return '<button tabindex="'+(sq===focus?0:-1)+'" aria-label="'+name(sq)+' '+(man?man.side+' '+labels[man.kind]+(man.roll?', '+moodNames[man.mood]:'')+(healer?', can heal':''):'empty')+'" class="sq '+classes+'" data-square="'+sq+'">'+(prefs.coords&&i%8===0?'<span class="rank">'+(rank(sq)+1)+'</span>':'')+(prefs.coords&&i>=56?'<span class="file">'+'abcdefgh'[file(sq)]+'</span>':'')+(man?'<span draggable="'+mouseDrag+'" class="piece '+man.side+' '+man.mood+'">'+art(man.kind,man.side)+(man.roll?'<b class="badge '+man.mood+'">'+(man.rescue||{normal:'·',devastated:'!',guilty:'×',psychopath:'+',bloodlust:'▲'}[man.mood])+'</b>':'')+'</span>':'')+'</button>'
   }).join('')
   const canTakeKing=g.bonus!==null&&legal(g).some(action=>action.type==='move'&&at(g,action.to)?.kind==='k')
   const headline=g.result?(g.result.winner?cap(g.result.winner)+' wins':'Draw')+' · '+g.result.reason:!v.start&&review===null?'Waiting for an opponent':g.bonus!==null?cap(g.side)+' · '+(canTakeKing?'King capture available':'Bonus move'):cap(g.side)+' to move'
@@ -260,17 +261,30 @@ function game(){
     const annotations=[x.roll?'🎲 '+x.roll+' · '+moodNames[x.mood!]:x.mood==='bloodlust'?'Bloodlust activated':'',x.capture?.side===x.side?'Friendly capture':'',...x.vanished.map(p=>cap(p.side)+' '+labels[p.kind].toLowerCase()+' on '+name(p.square)+' self-captured')].filter(Boolean)
     return tab==='Events'&&!annotations.length&&x.action.type!=='absolve'?'':'<li><span>'+x.turn+' '+(x.side==='white'?'○':'●')+'</span><div><b>'+safe(x.text)+'</b>'+annotations.map(a=>'<small>'+safe(a)+'</small>').join('')+'</div></li>'
   }).join('')
-  return '<main class="game"><section><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.bot?(info.rated?'RANKED BOT · RATED':'RANKED QUEUE · UNRATED BOT'):info?.rated?'RATED ONLINE':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY · BOT':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||(canAct()&&actions.some(a=>a.type==='absolve')?'Tap a green circle to absolve that piece.':''))+'</p></section><aside><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
+  return '<main class="game"><section class="game-board-area"><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.rated?'RATED ONLINE':info?.bot?'RANKED QUEUE · UNRATED':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+compactRoll+(g.result?button('result','Result'):'')+(review===null&&!g.result&&g.bonus!==null&&(mode==='online'?seat===g.side:mode!=='bot'||g.side===human)?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||(canAct()&&actions.some(a=>a.type==='absolve')?'Tap a green circle to absolve that piece.':''))+'</p><button class="game-jump" data-do="game-details" aria-controls="match-details">Moves &amp; details</button></section><aside id="match-details"><button class="board-jump" data-do="game-board">Back to board</button><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log" data-tab="'+tab+'">'+(tab==='Rules'?(g.rulesVersion===1?'<p>This match uses the original rules. Kings cannot be captured.</p>'+rules.replace('A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.',''):rules):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
 function render(){
   const focused=document.activeElement instanceof HTMLElement&&document.activeElement.matches('[data-square]')
-  const settingsOpen=$<HTMLDialogElement>('#modal')?.open&&$('#modal')?.dataset.kind==='settings'
+  const settingsDialog=$<HTMLDialogElement>('#modal')
+  const settingsOpen=settingsDialog?.open&&settingsDialog.dataset.kind==='settings'
+  const settingsScroll=settingsOpen?settingsDialog.scrollTop:0
+  const setting=settingsOpen?document.activeElement?.getAttribute('data-pref'):null
+  const oldLog=$('#log')
+  const logScroll=oldLog?.dataset.tab===tab&&oldLog.clientHeight?
+    {top:oldLog.scrollTop,atEnd:oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<24}:null
   root.innerHTML='<header><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a><nav>'+button('rules','Rules')+button('leaders','Ratings')+button('settings','⚙ Settings')+(session?.account?button('profile',safe(session.name)):session?.passkeys?button('sign-in','Sign in'):session?.signIn?'<a href="/api/auth/start">Sign in</a>':'')+'</nav></header>'+(mode==='home'?home():mode==='account'?'<main class="panel account" id="account">Loading…</main>':game())+'<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
   renderSponsor()
   document.body.classList.toggle('crt',prefs.crt)
   document.body.classList.toggle('reduced',prefs.motion||prefs.speed==='off')
+  document.body.classList.toggle('match-open',mode!=='home'&&mode!=='account')
   if(focused)$('[data-square="'+focus+'"]')?.focus({preventScroll:true})
-  if(settingsOpen)settings()
+  if(settingsOpen){
+    settings()
+    if(setting)$('[data-pref="'+setting+'"]')?.focus({preventScroll:true})
+    $('#modal')!.scrollTop=settingsScroll
+  }
+  const log=$('#log')
+  if(log&&tab!=='Rules')log.scrollTop=logScroll&&!logScroll.atEnd?logScroll.top:log.scrollHeight
   tick()
   if(mode==='home'&&playTab==='daily'&&!dailyLobby)void refreshDaily()
 }
@@ -309,7 +323,7 @@ function showResult(celebrate=false){
   const victory=outcome==='win'&&celebrate&&!prefs.motion&&prefs.speed!=='off'
   modal('<section class="result-content '+outcome+(victory?' victory-celebrate '+(prefs.speed==='fast'?'victory-fast':''):'')+'" aria-labelledby="result-title">'+
     '<div class="result-emblem" aria-hidden="true"><span class="result-symbol">'+(outcome==='win'?'♛':outcome==='loss'?'♚':'½')+'</span></div>'+
-    '<h2 id="result-title">'+title+'</h2><p class="result-reason">'+safe(reason)+(info?.bot&&!info.rated&&mode==='online'?' · Unrated bot game':'')+'</p>'+
+    '<h2 id="result-title">'+title+'</h2><p class="result-reason">'+safe(reason)+(info?.bot&&!info.rated&&mode==='online'?' · Unrated game':'')+'</p>'+
     '<p class="result-score" aria-label="White–Black score">'+score+winnerText+'</p>'+
     '<div class="result-actions">'+again+(m.log.length?button('review-result','Review game'):'')+
     button('home','Back to lobby','link')+'</div></section>','result')
@@ -366,6 +380,7 @@ function closeRoom(){
 function goHome(keepGuide=false){
   closeRoom();void cancel();mode='home';playTab='live';m=null;status='';review=null
   history.replaceState({},'',keepGuide?'/#how-to-play':'/');render()
+  if(!keepGuide)window.scrollTo(0,0)
 }
 function local(kind:string,control=presets[choice],fromQuickPlay=false){
   closeRoom();void cancel();history.replaceState({},'','/')
@@ -381,15 +396,16 @@ function local(kind:string,control=presets[choice],fromQuickPlay=false){
   }
   seed=m.game
   render()
+  window.scrollTo(0,0)
   if(kind==='bot')bot()
 }
-let pulling=false,lastSync=0
+let pulling='',lastSync=0
 async function sync(){
-  if(pulling||!id)return
-  const room=id;pulling=true;lastSync=Date.now()
+  if(!id||pulling===id)return
+  const room=id;pulling=room;lastSync=Date.now()
   try{const data=await api<Snapshot>('room/'+room);if(id===room)apply(data)}
   catch(e){if(id===room)tell((e as Error).message)}
-  finally{pulling=false}
+  finally{if(pulling===room)pulling=''}
 }
 function apply(data:Snapshot){
   if(m&&data.match.version<m.version)return
@@ -404,8 +420,6 @@ function apply(data:Snapshot){
     status='';render()
     const delay=!first&&review===null&&data.match.log.length>previousLog?effects(data.match):0
     if(!hadResult)scheduleResult(data.match,delay,!first)
-    const node=$('#log')
-    if(node&&review===null)node.scrollTop=node.scrollHeight
   }
 }
 function wire(room:string){
@@ -418,7 +432,7 @@ function wire(room:string){
 async function online(room:string){
   closeRoom();mode='online';id=room;m=null;selected=null;absolve=false;review=null;seed=initial();seat=null;info=null;tab='Moves';status='';focus=4
   history.replaceState({},'','/?game='+room)
-  render();await login();if(id===room){await sync();wire(room)}
+  render();window.scrollTo(0,0);await login();if(id===room){await sync();wire(room)}
 }
 // The poll also covers updates committed while a fetch was in flight.
 setInterval(()=>{if(id&&(!info?.control.days||(!document.hidden&&Date.now()-lastSync>=15_000)))void sync()},2400)
@@ -476,46 +490,37 @@ async function search(){
   let failures=0
   status='Searching '+label+'…'
   render()
-  const poll=async(acceptBot=false)=>{
+  const poll=async()=>{
     if(queue!==ticket||current!==generation)return
     clearTimeout(queueTimer)
-    if(acceptBot){
-      if(!rankedBotReady)return
-      rankedBotReady=false
-      render()
-    }
     try{
-      const found=await api<{id?:string;bot?:Control;botIn?:number;cancelled?:boolean}>('queue',{...ticket,acceptBot})
+      const found=await api<{id?:string;bot?:Control;cancelled?:boolean}>('queue',{...ticket,acceptBot:ticket.rated})
       if(current!==generation||queue!==ticket)return
-      if(found.id){queue=null;rankedBotReady=false;await online(found.id)}
+      if(found.id){queue=null;await online(found.id)}
       else if(found.bot){
         queue=null
         human=Math.random()<.5?'white':'black'
         local('bot',found.bot,true)
       }
-      else if(found.cancelled){queue=null;rankedBotReady=false;status='Search cancelled.';render()}
+      else if(found.cancelled){queue=null;status='Search cancelled.';render()}
       else {
         failures=0
         const seconds=Math.floor((Date.now()-started)/1000)
-        const ready=ticket.rated&&found.botIn===0
-        if(ready!==rankedBotReady){rankedBotReady=ready;render()}
-        tell(ready?'Waiting for a human opponent. A Ranked Bot match is available.':
-          'Searching '+label+' · '+seconds+'s'+(found.botIn===undefined?'':' · Bot available in '+Math.ceil(found.botIn/1000)+'s'))
+        tell('Searching '+label+' · '+seconds+'s')
         clearTimeout(queueTimer)
         queueTimer=window.setTimeout(poll,2100)
       }
     }catch(e){
       if(current!==generation||queue!==ticket)return
       if(++failures<=3){tell('Reconnecting to '+label+'…');queueTimer=window.setTimeout(poll,3000);return}
-      queue=null;rankedBotReady=false;status=(e as Error).message;render()
+      queue=null;status=(e as Error).message;render()
     }
   }
-  pollQueue=poll
   await poll()
 }
 async function cancel(){
   const ticket=queue
-  queue=null;rankedBotReady=false;pollQueue=undefined;generation++;clearTimeout(queueTimer)
+  queue=null;generation++;clearTimeout(queueTimer)
   if(ticket){await api('queue',{...ticket,cancel:true}).catch(()=>{});if(mode==='home'){status='';render()}}
 }
 function animateVanished(pieces:readonly Piece[]):number{
@@ -550,6 +555,30 @@ function animateVanished(pieces:readonly Piece[]):number{
   }
   return duration+35
 }
+function rollDice(duration:number){
+  for(const tray of document.querySelectorAll('[data-roll]')){
+    const reel=tray.querySelector<HTMLElement>('[data-die]')
+    if(!reel?.getClientRects().length)continue
+    const labels=tray.querySelectorAll('[data-roll-label],[data-mood-line]')
+    const final=reel.textContent
+    const strip=document.createElement('span')
+    strip.className='dice-strip'
+    for(const index of [2,4,1,5,3,0]){
+      const frame=document.createElement('span')
+      frame.textContent=dice[index]
+      strip.appendChild(frame)
+    }
+    reel.replaceChildren(strip)
+    labels.forEach(label=>label.classList.add('awaiting'))
+    const frames=strip.animate([{transform:'translateY(0)'},{transform:'translateY(-83.33%)'}],{duration,easing:'steps(5,end)'})
+    reel.animate([{transform:'rotate(-25deg) scale(.8)'},{transform:'rotate(20deg) scale(1.08)'},{transform:'rotate(-12deg)'},{transform:'none'}],{duration})
+    void frames.finished.then(()=>{
+      if(!reel.isConnected)return
+      reel.textContent=final
+      labels.forEach(label=>label.classList.remove('awaiting'))
+    },()=>{})
+  }
+}
 function effects(match:Match):number{
   if(match.version<=soundVersion)return 0
   soundVersion=match.version
@@ -575,31 +604,8 @@ function effects(match:Match):number{
     const state=e.captureState
     const landed=at(match.game,e.action.to)
     const mood=state?.mood??e.mood??landed?.mood??'normal'
-    const reel=$('#die')
-    const result=$('#mood-line')
     const spinDuration=prefs.speed==='fast'?245:590
-    const face=state?.originalRoll??e.roll??landed?.roll
-    if(reel&&prefs.diceMotion){
-      const final=reel.textContent??(face?dice[face-1]:'—')
-      const strip=document.createElement('span')
-      strip.className='dice-strip'
-      for(const glyph of [2,4,1,5,3,0].map(index=>dice[index])){
-        const frame=document.createElement('span');frame.textContent=glyph;strip.appendChild(frame)
-      }
-      reel.replaceChildren(strip)
-      reel.classList.add('rolling')
-      $('#dice-label')?.classList.add('awaiting')
-      if(result)result.classList.add('awaiting')
-      const frames=strip.animate([{transform:'translateY(0)'},{transform:'translateY(-83.33%)'}],{duration:spinDuration,easing:'steps(5,end)'})
-      reel.animate([{transform:'rotate(-25deg) scale(.8)'},{transform:'rotate(20deg) scale(1.08)'},{transform:'rotate(-12deg)'},{transform:'none'}],{duration:spinDuration})
-      void frames.finished.then(()=>{
-        if(!reel.isConnected)return
-        reel.textContent=final
-        reel.classList.remove('rolling')
-        $('#dice-label')?.classList.remove('awaiting')
-        result?.classList.remove('awaiting')
-      },()=>{})
-    }
+    if(prefs.diceMotion)rollDice(spinDuration)
     if(tile&&prefs.moodMotion){
       const flare=document.createElement('span')
       flare.className='mood-flare '+mood
@@ -823,11 +829,11 @@ function square(sq:number){
   else{
     const p=at(m.game,sq)
     if(selected!==null&&p?.side!==m.game.side&&!options.length){tell('That destination is unavailable.');return}
-    selected=p&&selected!==sq?sq:null;absolve=false;render()
+    selected=p?.side===m.game.side&&selected!==sq?sq:null;absolve=false;render()
   }
 }
 async function account(which:string){
-  closeRoom();void cancel();await login();mode='account';render()
+  closeRoom();void cancel();await login();mode='account';render();window.scrollTo(0,0)
   if(which==='watch'){
     const games=await api<{id:string;white:string;black:string;control:Control;rated:boolean}[]>('watch')
     const node=$('#account')
@@ -853,7 +859,7 @@ async function handle(action:string){
     case 'settings':settings();return
     case 'quiet':prefs={...prefs,volume:0,blood:'off',shake:false,flash:false,motion:true};savePrefs();render();return
     case 'more':if(!queue)clocksDialog();return
-    case 'quick-clock':if(!queue){flexible=true;render()}return
+    case 'quick-clock':if(!queue){flexible=!flexible;render();$('[data-do="quick-clock"]')?.focus({preventScroll:true})}return
     case 'watch':case 'leaders':case 'profile':await account(action);return
     case 'logout':await api('auth/logout',{});location.assign('/');return
     case 'local':case 'tutorial':local(action);return
@@ -867,7 +873,8 @@ async function handle(action:string){
     case 'review-result':
       review=Math.max(0,(m?.log.length??1)-1);selected=null;absolve=false;tab='Moves';render();return
     case 'queue':await search();return
-    case 'ranked-bot':await pollQueue?.(true);return
+    case 'game-details':$('#match-details')?.scrollIntoView({block:'start'});return
+    case 'game-board':$('.game-board-area')?.scrollIntoView({block:'start'});return
     case 'queue-again':goHome();rated=true;await search();return
     case 'cancel':await cancel();return
     case 'friend':{
@@ -929,7 +936,7 @@ root.addEventListener('click',event=>{
 })
 root.addEventListener('change',event=>{
   const el=event.target as HTMLInputElement|HTMLSelectElement
-  if(el.id==='rated'){rated=(el as HTMLInputElement).checked;return}
+  if(el.id==='rated'){rated=(el as HTMLInputElement).checked;render();$('#rated')?.focus({preventScroll:true});return}
   const key=el.dataset.pref
   if(!key)return
   prefs={...prefs,[key]:el instanceof HTMLInputElement&&el.type==='checkbox'?el.checked:key==='volume'?Number(el.value):el.value};savePrefs();render()

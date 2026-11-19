@@ -19,7 +19,7 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .piece.black{color:#271a29;-webkit-text-stroke:.45px #22121e;text-shadow:0 1px 1px #fff1ca}
 .die-row #die{display:block;height:1em;overflow:hidden;line-height:1}
 .dice-strip,.dice-strip>span{display:block;line-height:1}
-.die-row .awaiting{opacity:.24}
+[data-roll] .awaiting{opacity:.24}
 .mood-flare{position:absolute;z-index:4;top:-4px;left:50%;max-width:125px;padding:4px 7px;white-space:nowrap;border:1px solid currentColor;background:#241821;color:#f0c477;box-shadow:2px 2px #120b0e;font:700 clamp(.57rem,1.9cqw,.76rem) var(--mono);pointer-events:none}
 .mood-flare.devastated{color:#ffc2d1}.mood-flare.guilty{color:#e5b7ff}.mood-flare.psychopath,.mood-flare.bloodlust{color:#ff8486}
 .bot-choice{display:flex;gap:.6rem;align-items:center;padding:.6rem .45rem;cursor:pointer}
@@ -60,7 +60,6 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .match-sponsor.tall iframe { height: 600px; }
 
 .queue-preference{margin-bottom:.5rem}.queue-preference button{width:100%;text-align:left}#email-start,#email-finish{margin-bottom:1rem}#email-start input,#email-finish input{max-width:100%;padding:.4rem}#email-status{margin:.6rem 0;color:var(--gold)}
-.ranked-bot-button{margin-top:.65rem}
 .launch > h2 { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
 #online-count { color: var(--muted); font-size: .72rem; font-weight: 600; letter-spacing: 0; }
 .play-tabs { display: flex; gap: .5rem; margin-bottom: .95rem; }
@@ -77,6 +76,86 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .daily-games { list-style: none; padding: 0; margin: 0; }
 .daily-games li + li { border-top: 1px solid var(--line); }
 .daily-games a { display: block; padding: .5rem 0; overflow-wrap: anywhere; }
+.sq { touch-action: manipulation; -webkit-touch-callout: none; user-select: none; }
+.sq:active { transform: none; }
+.mobile-roll, .game-jump, .board-jump, .clock-toggle-hint { display: none; }
+.game-board-area, #match-details, .player > div { min-width: 0; }
+.player > div { overflow-wrap: anywhere; }
+.player time { flex-shrink: 0; }
+@media (hover: none) {
+  .sq:hover { filter: none; }
+}
+
+@media (max-width: 790px), (orientation: landscape) and (max-height: 540px) {
+  .match-open header { padding: 5px 12px; min-height: 56px; flex-wrap: nowrap; }
+  .match-open header nav > :not([data-do="settings"]) { display: none; }
+  .match-open header nav button, .game .crumb button, .game .action-bar button,
+  .game .tools button, .game .tabs button, .game .review button,
+  .game-jump, .board-jump { min-height: 44px; touch-action: manipulation; }
+  .game { padding: 8px 8px 24px; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+  .game aside { gap: 10px; padding-top: 0; }
+  .crumb { min-height: 44px; margin-bottom: 4px; gap: 5px; }
+  .crumb b { text-align: center; }
+  .player { padding: 4px 6px; margin: 4px 0; gap: 7px; }
+  .player .icon { width: 29px; height: 29px; flex-shrink: 0; font-size: 1.3rem; }
+  .player b { font-size: .92rem; line-height: 1.1; }
+  .player time { padding: 3px 6px; }
+  .game .board { max-width: max(260px, calc(100svh - 176px)); margin-inline: auto; }
+  .action-bar { min-height: 44px; gap: 6px; }
+  .action-bar strong { min-width: 0; font-size: .9rem; }
+  .mobile-roll {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+    padding: 2px 6px;
+    color: var(--muted);
+    background: #292028;
+    border: 1px solid var(--line);
+    font-size: .76rem;
+  }
+  .mobile-roll [data-die] { display: block; height: 1em; overflow: hidden; color: var(--gold); font: 1.55rem/1 system-ui; }
+  .game-jump, .board-jump { display: block; width: 100%; }
+  .game-jump { margin-top: 4px; }
+  .game .review button { min-width: 44px; }
+  .game .details #log { overscroll-behavior: contain; }
+}
+
+@media (max-width: 600px) {
+  .home { padding: 18px 12px 24px; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  .hero h1 { font-size: clamp(2rem, 9vw, 3.4rem); line-height: 1.02; margin: 0 0 .4rem; text-shadow: 2px 3px #662d37; }
+  .hero h1 br { display: none; }
+  .hero h1 em::before { content: " "; }
+  .hero .sub { font-size: 1.07rem; margin: 0 0 .25rem; }
+  .hero p:not(.sub) { max-width: 43ch; font-size: .96rem; margin-bottom: .2rem; }
+  .hero .link { display: inline-flex; align-items: center; min-height: 44px; margin-block: 0; }
+  .launch .pad { padding: 11px; }
+  .launch button { min-height: 44px; touch-action: manipulation; }
+  .launch .rated { display: flex; align-items: center; min-height: 44px; gap: .45rem; margin: 0 0 4px; }
+  .launch .clocks b { font-size: clamp(.85rem, 3.65vw, 1.1rem); }
+  .clock-groups { gap: .5rem; margin-top: .65rem; }
+  .play-tabs { margin-bottom: .65rem; }
+  .queue-preference { margin-bottom: 0; }
+  .clock-groups.flexible-clock { display: none; }
+  .clock-toggle-hint { display: block; margin-top: .28rem; font-size: .8rem; }
+  .daily-help { margin-block: .55rem; }
+  .match-open .game #status { margin: 5px 0; }
+  dialog { padding: 15px; max-height: 88dvh; }
+  dialog .close { top: 6px; right: 6px; }
+  dialog button, dialog select { min-height: 44px; }
+  dialog .close button { min-width: 44px; }
+  dialog input:not([type="checkbox"], [type="radio"], [type="range"]), dialog select { max-width: 100%; min-height: 44px; font-size: 16px; }
+  #email-start input, #email-finish input, #passkey-register input { display: block; width: 100%; }
+  .settings label:has(input[type="checkbox"]) { min-height: 44px; }
+}
+
+@media (orientation: landscape) and (max-height: 540px) and (min-width: 600px) {
+  .game { max-width: 810px; grid-template-columns: max(220px, calc(100svh - 154px)) minmax(0, 1fr); }
+  .game .board { max-width: none; }
+  .game .game-jump, .game .board-jump, .game .mobile-roll { display: none; }
+  .game .die-row { min-height: 56px; padding: 6px 10px; }
+  .game .die-row #die { min-width: 37px; font-size: 2.3rem; }
+}
 .piece img.classic-pawn{width:.77em;height:.83em;image-rendering:auto}
 .self-capture{position:absolute;inset:0;z-index:3;display:grid;place-items:center;pointer-events:none}
 .remorse-ash{position:absolute;z-index:4;top:54%;left:50%;width:5px;height:5px;background:#e5b7ff;box-shadow:0 0 5px #5e3c64;pointer-events:none}

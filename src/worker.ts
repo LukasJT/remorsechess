@@ -12,7 +12,7 @@ type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
 interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string }
 type Identity = { id:string; name:string; account:boolean }
 type Seats = Partial<Record<Side,Identity>>
-type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side }
+type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side; queueSearch?:string }
 type Ticket = { owner:Identity; id:string; expires:number; clock:SearchClock; created:number; searchId?:string; cancelled?:boolean; bot?:Control }
 type DailyTicket = { owner:Identity; id:string; days:number; created:number; requestId:string; matched?:boolean }
 type PublicGame = { id:string; white:string; black:string; control:Control; rated:boolean }
@@ -27,6 +27,7 @@ const lobby = (env:Env) => env.LOBBY.getByName('global-v1')
 const room = (env:Env,id:string) => env.ROOMS.getByName(id)
 const oppositeSeat=(s:Side):Side=>s==='white'?'black':'white'
 const botWait=(rated:boolean)=>rated?20_000:8_000
+const botUsageKey=(player:string)=>'rated-bot/'+player
 const dailyLifetime=14*86_400_000
 const dailyRoomKey=(player:string,id:string)=>'daily-room/'+player+'/'+id
 const seatOf = (info:RoomInfo,player:Identity):Side|null => info.seats.white?.id===player.id?'white':info.seats.black?.id===player.id?'black':null
@@ -54,9 +55,20 @@ export class Room extends DurableObject<Env> {
   async initialize(info:RoomInfo) {
     await this.ctx.blockConcurrencyWhile(async()=>{
       if(await this.ctx.storage.get('room')) return
-      const match=makeMatch(info.control,info.seats.black && info.seats.white ? Date.now() : 0)
+      const match=makeMatch(info.control,!info.bot&&info.seats.black&&info.seats.white?Date.now():0)
       await this.ctx.storage.put({room:info,match})
       await this.schedule(info,match)
+    })
+  }
+  async cancelUnstartedBot(player:string,searchId:string){
+    return this.ctx.blockConcurrencyWhile(async()=>{
+      const info=await this.ctx.storage.get<RoomInfo>('room')
+      const match=await this.ctx.storage.get<Match>('match')
+      if(!info?.bot||!match||match.start||match.game.result||info.queueSearch!==searchId||
+        info.seats[oppositeSeat(info.bot)]?.id!==player)return
+      await this.ctx.storage.deleteAll()
+      await this.ctx.storage.deleteAlarm()
+      return {rated:info.rated,created:info.created}
     })
   }
   async dailyGame(player:string):Promise<DailyGame|undefined>{
@@ -73,7 +85,7 @@ export class Room extends DurableObject<Env> {
     const info=await this.ctx.storage.get<RoomInfo>('room')
     const match=await this.ctx.storage.get<Match>('match')
     if(!info || !match) return
-    const {seats,invited,...visible}=info
+    const {seats,invited,queueSearch,...visible}=info
     const log=[...(await this.ctx.storage.list<Entry>({prefix:'event/'})).values()]
     return {room:{...visible,white:seats.white?.name,black:seats.black?.name},seat:player?seatOf(info,player):undefined,
       match:{...match,game:{...match.game,seen:{}},log},now:Date.now()}
@@ -116,6 +128,10 @@ export class Room extends DurableObject<Env> {
       const timed=expire(match,Date.now())
       if(timed!==match){ await this.save(info,timed); match=timed }
       const seat=seatOf(info,player)
+      if(action==='snapshot'&&info.bot&&seat&&!match.start&&!match.game.result){
+        match={...match,start:Date.now(),version:match.version+1}
+        await this.save(info,match)
+      }
       if(action==='ws' && req.headers.get('Upgrade')?.toLowerCase()==='websocket'){
         if(this.ctx.getWebSockets().length>=100) return problem('Spectator limit reached',503)
         const pair=new WebSocketPair()
@@ -426,8 +442,21 @@ export class Lobby extends DurableObject<Env> {
       const activeKey='active/'+player.id
       const active=await this.ctx.storage.get<string>(activeKey)
       if(active){
-        if(await room(this.env,active).isOpenFor(player.id))return {id:active}
-        await this.ctx.storage.delete(activeKey)
+        const match=room(this.env,active)
+        const dropped=cancel&&searchId?await match.cancelUnstartedBot(player.id,searchId):undefined
+        if(dropped){
+          const key=botUsageKey(player.id)
+          await this.ctx.storage.transaction(async txn=>{
+            await txn.delete(activeKey)
+            if(!dropped.rated)return
+            const usage=await txn.get<{day:number;count:number}>(key)
+            if(usage?.day===Math.floor(dropped.created/86_400_000)&&usage.count>0)
+              await txn.put(key,{...usage,count:usage.count-1})
+          })
+        }else{
+          if(await match.isOpenFor(player.id))return {id:active}
+          await this.ctx.storage.delete(activeKey)
+        }
       }
       const now=Date.now()
       const directory='search/'+(rated?'rated/':'casual/')
@@ -473,13 +502,13 @@ export class Lobby extends DurableObject<Env> {
           const bot= Math.random()<.5?'white':'black'
           const side=oppositeSeat(bot)
           const day=Math.floor(now/86_400_000)
-          const usageKey='rated-bot/'+player.id
+          const usageKey=botUsageKey(player.id)
           const usage=await this.ctx.storage.get<{day:number;count:number}>(usageKey)
           const count=usage?.day===day?usage.count:0
           const counts=control.seconds>=60&&count<dailyRatedBotGames
-          const seats:Seats={[side]:player,[bot]:{id:'ranked-bot',name:'Ranked Bot',account:false}}
+          const seats:Seats={[side]:player,[bot]:{id:'ranked-bot',name:'Opponent',account:false}}
           const rating=(await this.profile(player)).ratings[pool(control.seconds,control.increment)]??defaultRating()
-          await room(this.env,ticketId).initialize({id:ticketId,seats,rated:counts,ratings:{[side]:rating,[bot]:botRating},control,created:now,open:false,bot})
+          await room(this.env,ticketId).initialize({id:ticketId,seats,rated:counts,ratings:{[side]:rating,[bot]:botRating},control,created:now,open:false,bot,queueSearch:searchId})
           await this.ctx.storage.transaction(async txn=>{
             await txn.delete(myKey)
             await txn.put(activeKey,ticketId)
