@@ -11,10 +11,11 @@ const b64=bytes=>Buffer.from(bytes).toString('base64url')
 const clientData=(type,challenge)=>Buffer.from(JSON.stringify({type,challenge,origin:base,crossOrigin:false}))
 function session(){
   const jar=new Map()
-  return async(path,body,status=200)=>{
+  const cookie=()=>[...jar].map(([k,v])=>k+'='+v).join('; ')
+  const request=async(path,body,status=200)=>{
     const resp=await fetch(base+'/api/'+path,{
       method:body===undefined?'GET':'POST',
-      headers:{cookie:[...jar].map(([k,v])=>k+'='+v).join('; '),origin:base,'content-type':'application/json'},
+      headers:{cookie:cookie(),origin:base,'content-type':'application/json'},
       body:body===undefined?undefined:JSON.stringify(body),
     })
     for(const cookie of resp.headers.getSetCookie()){
@@ -26,6 +27,8 @@ function session(){
     assert.equal(resp.status,status,text)
     return text?JSON.parse(text):undefined
   }
+  request.cookie=cookie
+  return request
 }
 async function register(client,name){
   assert.equal((await client('session')).passkeys,true)
@@ -184,3 +187,39 @@ await a('room/'+pairedDaily+'/command',{id:crypto.randomUUID(),version:dailyStat
 await waitFor(async()=>!(await a('daily')).games.some(game=>game.id===pairedDaily),'Completed Daily game remained active')
 assert.equal((await waitFor(async()=>{const p=await a('profile');return p.history[0]?.id===pairedDaily?p:undefined},'Daily result was never saved')).history[0].pool,'Daily')
 console.log('Daily smoke passed: account requirement, friend invites, per-turn clocks, persistent search, independent live queue, and saved history.')
+
+await guest('friends',undefined,401)
+const own=await a('profile')
+const peer=await b('profile')
+assert.equal(own.details.avatar,undefined)
+const edit={displayName:'Test Knight',country:'CA',bio:'Testing profile and friend settings.'}
+await a('profile',{...edit,country:'ZZ'},400)
+await a('profile',{...edit,photo:'PHN2Zz4='},400)
+const photo='/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCACgAKADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAEE/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al4CtAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/2Q=='
+const saved=await a('profile',{...edit,photo})
+assert.ok(saved.details.avatar)
+assert.equal(saved.details.bio,edit.bio)
+assert.equal((await b('players?q='+own.handle.toUpperCase()))[0].country,'CA')
+assert.equal((await b(inviteRoom+'/player')).displayName,'Test Knight')
+const picture=await fetch(base+'/api/avatar/'+own.handle,{headers:{cookie:b.cookie()}})
+assert.equal(picture.headers.get('content-type'),'image/jpeg')
+assert.equal(Buffer.from(await picture.arrayBuffer()).toString('base64'),photo)
+await a('friends',{handle:own.handle,action:'add'},404)
+await a('friends',{handle:peer.handle,action:'add'})
+await a('friends',{handle:peer.handle,action:'add'})
+assert.equal((await a('friends')).outgoing.length,1)
+assert.equal((await b('friends')).incoming[0].handle,own.handle)
+assert.equal((await b('player/'+own.handle)).online,undefined)
+await a('friends',{handle:peer.handle,action:'accept'},409)
+await b('friends',{handle:own.handle,action:'accept'})
+const presenceSocket=new WebSocket(base.replace(/^http/,'ws')+'/api/presence',{headers:{cookie:a.cookie(),origin:base}})
+await waitFor(async()=> (await b('friends')).friends.some(card=>card.handle===own.handle&&card.online),'Accepted friend did not appear online')
+presenceSocket.close()
+await waitFor(async()=> (await b('friends')).friends.some(card=>card.handle===own.handle&&card.online===false),'Friend stayed online after disconnect')
+await a('profile',{...edit,photo:null})
+assert.equal((await b('player/'+own.handle)).avatar,undefined)
+await b(inviteRoom+'/block',{})
+assert.equal((await a('friends')).friends.length,0)
+assert.equal((await b('friends')).friends.length,0)
+await a('friends',{handle:peer.handle,action:'add'},404)
+console.log('Profile and friends smoke passed: validation, photo storage, search and opponent cards, request acceptance, real presence, privacy, and blocking.')

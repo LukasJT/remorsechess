@@ -76,6 +76,67 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .daily-games { list-style: none; padding: 0; margin: 0; }
 .daily-games li + li { border-top: 1px solid var(--line); }
 .daily-games a { display: block; padding: .5rem 0; overflow-wrap: anywhere; }
+.social-account { width: min(740px, calc(100% - 28px)); padding: clamp(14px, 5vw, 28px); }
+.social-account h1 { line-height: 1.1; overflow-wrap: anywhere; }
+.social-nav { display: flex; gap: .6rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+.social-nav a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: .65rem; }
+.social-nav a[aria-current="page"] { color: var(--paper); border-bottom: 2px solid var(--gold); font-weight: 700; text-decoration: none; }
+.profile-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .9rem; }
+.profile-summary h1 { font-size: clamp(1.65rem, 6vw, 2.7rem); margin-bottom: .25rem; }
+.profile-avatar { width: 72px; aspect-ratio: 1; display: grid; place-items: center; position: relative; flex-shrink: 0; overflow: hidden; border: 1px solid #8d5d61; background: #3d2931; color: var(--gold); font: 700 1.7rem var(--mono); }
+.profile-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.profile-handle { color: var(--muted); margin: 0; overflow-wrap: anywhere; }
+.profile-country { display: flex; gap: .45rem; align-items: center; margin-top: .25rem; color: var(--paper); font-size: .89rem; }
+.country-flag { display: inline-block; width: 24px; height: 18px; flex-shrink: 0; background: url('/profile-flags.webp') no-repeat; background-size: 1600% 1600%; box-shadow: 0 0 0 1px #efdfc32e; }
+.profile-bio { margin: .85rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.profile-ratings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin-block: 1.3rem 1.5rem; }
+.profile-ratings div { background: #30242c; border: 1px solid var(--line); padding: .45rem .65rem; }
+.profile-ratings dt { margin: 0; font-size: .9rem; }
+.profile-ratings dd { font: 700 1rem var(--mono); }
+.profile-history { padding-inline-start: 1.2rem; }
+.profile-history li { margin: .45rem 0; }
+.profile-tools { margin-top: 1rem; }
+.profile-edit { display: grid; gap: .85rem; }
+.profile-edit label { display: grid; gap: .35rem; }
+.profile-disclosure { color: var(--muted); margin: 0; overflow-wrap: anywhere; }
+.profile-edit input:not([type="checkbox"]), .profile-edit select, .profile-edit textarea, .friend-search input { width: 100%; min-width: 0; min-height: 44px; border: 1px solid #7f636d; border-radius: 0; padding: .5rem; color: var(--paper); background: #21191f; font: inherit; font-size: 16px; }
+.profile-edit textarea { resize: vertical; }
+.profile-photo-field { display: flex; gap: .85rem; align-items: center; }
+.profile-photo-field > div { flex: 1; min-width: 0; }
+.profile-edit .remove-photo { display: flex; align-items: center; min-height: 44px; }
+.profile-edit button { justify-self: start; min-height: 44px; }
+.friend-search label { display: block; margin-bottom: .35rem; }
+.friend-search div { display: flex; align-items: stretch; gap: .5rem; }
+.friend-search input { flex: 1; }
+.friend-search button { flex-shrink: 0; }
+.social-list { list-style: none; margin: 0; padding: 0; }
+.social-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding-block: .75rem; border-top: 1px solid var(--line); }
+.social-row .profile-avatar { width: 46px; font-size: 1rem; }
+.social-person { min-width: 0; overflow-wrap: anywhere; }
+.player-link { padding: 0; margin: 0; display: inline; font-size: 1rem; }
+.friend-presence { display: flex; align-items: center; gap: .35rem; margin-top: .25rem; color: var(--muted); font-size: .84rem; }
+.friend-presence::before { content: ''; width: .48rem; height: .48rem; border-radius: 100%; background: #9f8391; }
+.friend-presence.is-online { color: #a6f7a2; }
+.friend-presence.is-online::before { background: currentColor; }
+.social-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; font-size: .84rem; }
+.social-account button:not(.player-link), .social-actions button { min-height: 44px; }
+#friend-groups, #people-results:not(:empty) { margin-top: 1rem; }
+#friend-groups section + section { margin-top: 1rem; }
+#friend-groups h2 { display: flex; align-items: baseline; gap: .7rem; font-size: 1.2rem; margin-bottom: .45rem; }
+#friend-groups h2 small { font-weight: 400; font-size: .8rem; }
+#friends-status, #profile-edit-status, #player-action-status { color: var(--gold); margin: .45rem 0 0; }
+#friends-status:empty, #profile-edit-status:empty, #player-action-status:empty { display: none; }
+.public-profile { grid-template-columns: auto minmax(0, 1fr); }
+.public-profile ~ .social-actions { margin-top: 1rem; }
+.social-account, #modal[data-kind="profile-edit"], #modal[data-kind="player"] { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  header nav { flex-wrap: wrap; }
+  .profile-summary { grid-template-columns: auto minmax(0, 1fr); }
+  .profile-summary > button { grid-column: 1 / -1; justify-self: start; }
+  .social-row { grid-template-columns: auto minmax(0, 1fr); }
+  .social-row .social-actions { grid-column: 2; }
+  .player-link { min-height: 32px; }
+}
 .sq { touch-action: manipulation; -webkit-touch-callout: none; user-select: none; }
 .sq:active { transform: none; }
 .mobile-roll, .game-jump, .board-jump, .clock-toggle-hint { display: none; }

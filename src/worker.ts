@@ -7,6 +7,7 @@ import { accountName, authentication, canUsePasskeys, registration, verifyExisti
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
 import { banner } from './ads.ts'
 import { digest, normalizeEmail, sendSignIn, type EmailRequest } from './email.ts'
+import { emptyDetails,maxProfileBody,parseProfileEdit,validHandle,type FriendAction,type FriendList,type FriendStatus,type PlayerCard,type ProfileDetails,type ProfileEdit } from './social.ts'
 
 type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
 interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string }
@@ -17,6 +18,7 @@ type Ticket = { owner:Identity; id:string; expires:number; clock:SearchClock; cr
 type DailyTicket = { owner:Identity; id:string; days:number; created:number; requestId:string; matched?:boolean }
 type PublicGame = { id:string; white:string; black:string; control:Control; rated:boolean }
 type Profile = { user:Identity; ratings:Record<string,Rating>; history:{id:string; result:string; pool:string; delta?:number}[] }
+type FriendLink={handle:string;status:FriendStatus}
 type Final = { room:RoomInfo; reason:string; winner:Side|null }
 const json = (value:unknown,status=200) => Response.json(value,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}})
 const problem = (error:string,status=400) => json({error},status)
@@ -30,6 +32,10 @@ const botWait=(rated:boolean)=>rated?20_000:8_000
 const botUsageKey=(player:string)=>'rated-bot/'+player
 const dailyLifetime=14*86_400_000
 const dailyRoomKey=(player:string,id:string)=>'daily-room/'+player+'/'+id
+const friendKey=(player:string,other:string)=>'friend/'+player+'/'+other
+const blockedKeys=(player:string,other:string)=>['block/'+player+'/'+other,'block/'+other+'/'+player]
+const detailsKey=(player:string)=>'profile-details/'+player
+const photoKey=(player:string)=>'profile-photo/'+player
 const seatOf = (info:RoomInfo,player:Identity):Side|null => info.seats.white?.id===player.id?'white':info.seats.black?.id===player.id?'black':null
 function parseControl(raw:Partial<Control>): Control|null {
   const {seconds,increment}=raw
@@ -47,6 +53,12 @@ function parseAction(raw:unknown):Command|null {
 }
 
 export class Room extends DurableObject<Env> {
+  async opponentAccount(player:string){
+    const info=await this.ctx.storage.get<RoomInfo>('room')
+    if(!info||info.bot)return
+    const other=info.seats.white?.id===player?info.seats.black:info.seats.black?.id===player?info.seats.white:undefined
+    if(other?.account)return other
+  }
   async isOpenFor(playerID:string){
     const info=await this.ctx.storage.get<RoomInfo>('room')
     const match=await this.ctx.storage.get<Match>('match')
@@ -87,7 +99,8 @@ export class Room extends DurableObject<Env> {
     if(!info || !match) return
     const {seats,invited,queueSearch,...visible}=info
     const log=[...(await this.ctx.storage.list<Entry>({prefix:'event/'})).values()]
-    return {room:{...visible,white:seats.white?.name,black:seats.black?.name},seat:player?seatOf(info,player):undefined,
+    return {room:{...visible,white:seats.white?.name,black:seats.black?.name,
+      whiteAccount:seats.white?.account,blackAccount:seats.black?.account},seat:player?seatOf(info,player):undefined,
       match:{...match,game:{...match.game,seen:{}},log},now:Date.now()}
   }
   private nextAlarm(info:RoomInfo,m:Match){
@@ -322,6 +335,7 @@ export class Lobby extends DurableObject<Env> {
   }
   async signIn(id:string,user:Identity){
     await this.ctx.storage.put('session/'+id,{user,expires:Date.now()+7*86400_000})
+    await this.socialHandle(user)
   }
   async startCeremony(guest:string,ceremony:Ceremony){
     await this.ctx.storage.put('ceremony/'+guest,ceremony)
@@ -423,8 +437,104 @@ export class Lobby extends DurableObject<Env> {
   async profile(user:Identity):Promise<Profile>{
     return await this.ctx.storage.get<Profile>('profile/'+user.id) ?? {user,ratings:{},history:[]}
   }
+  async socialHandle(user:Identity){
+    const preferred=user.name.toLowerCase()
+    if(await this.ctx.storage.get('handle/'+preferred)===user.id)return preferred
+    return this.ctx.storage.transaction(async txn=>{
+      const key='social-handle/'+user.id
+      const assigned=await txn.get<string>(key)
+      if(assigned)return assigned
+      let handle=validHandle(preferred)?preferred:'player-'+token().slice(0,8)
+      while(await txn.get('handle/'+handle))handle='player-'+token().slice(0,12)
+      await txn.put('handle/'+handle,user.id)
+      await txn.put(key,handle)
+      return handle
+    })
+  }
+  async profilePage(user:Identity){
+    const [profile,handle,details]=await Promise.all([
+      this.profile(user),this.socialHandle(user),this.ctx.storage.get<ProfileDetails>(detailsKey(user.id)),
+    ])
+    return {...profile,handle,details:details??emptyDetails}
+  }
+  async updateProfile(user:Identity,edit:ProfileEdit){
+    await this.ctx.storage.transaction(async txn=>{
+      const previous=await txn.get<ProfileDetails>(detailsKey(user.id))
+      const {photo,...details}=edit
+      let avatar=previous?.avatar
+      if(photo===null){await txn.delete(photoKey(user.id));avatar=undefined}
+      else if(photo){await txn.put(photoKey(user.id),photo);avatar=token()}
+      await txn.put<ProfileDetails>(detailsKey(user.id),{...details,avatar})
+    })
+    return this.profilePage(user)
+  }
+  async playerCard(viewer:string,handle:string):Promise<PlayerCard|undefined>{
+    const id=await this.ctx.storage.get<string>('handle/'+handle)
+    if(!id||id===viewer||(await this.ctx.storage.get(blockedKeys(viewer,id))).size)return
+    const [details,link]=await Promise.all([
+      this.ctx.storage.get<ProfileDetails>(detailsKey(id)),this.ctx.storage.get<FriendLink>(friendKey(viewer,id)),
+    ])
+    return {...(details??emptyDetails),handle,status:link?.status,
+      online:link?.status==='friend'?this.ctx.getWebSockets(id).some(s=>s.readyState===WebSocket.OPEN):undefined}
+  }
+  async findPlayers(viewer:string,prefix:string){
+    const matches=await this.ctx.storage.list<string>({prefix:'handle/'+prefix,limit:12})
+    const cards=await Promise.all([...matches.keys()].map(key=>this.playerCard(viewer,key.slice(7))))
+    return cards.filter(card=>card!==undefined)
+  }
+  async avatar(viewer:string,handle:string){
+    const id=await this.ctx.storage.get<string>('handle/'+handle)
+    if(!id||(id!==viewer&&(await this.ctx.storage.get(blockedKeys(viewer,id))).size))return
+    return this.ctx.storage.get<string>(photoKey(id))
+  }
+  async friends(user:string):Promise<FriendList>{
+    const entries=await this.ctx.storage.list<FriendLink>({prefix:'friend/'+user+'/'})
+    const groups:FriendList={friends:[],incoming:[],outgoing:[]}
+    const ids=[...entries.keys()].map(key=>key.slice(('friend/'+user+'/').length))
+    const online=new Set(this.presenceSockets().map(socket=>this.ctx.getTags(socket)[0]))
+    for(let i=0;i<ids.length;i+=100){
+      const batch=ids.slice(i,i+100)
+      const details=await this.ctx.storage.get<ProfileDetails>(batch.map(detailsKey))
+      for(const id of batch){
+        const link=entries.get(friendKey(user,id))!
+        const card={...(details.get(detailsKey(id))??emptyDetails),handle:link.handle,status:link.status}
+        if(link.status==='friend')groups.friends.push({...card,online:online.has(id)})
+        else groups[link.status].push(card)
+      }
+    }
+    groups.friends.sort((a,b)=>Number(b.online)-Number(a.online)||a.handle.localeCompare(b.handle))
+    return groups
+  }
+  async changeFriend(user:Identity,handle:string,action:FriendAction){
+    const myHandle=await this.socialHandle(user)
+    return this.ctx.storage.transaction(async txn=>{
+      const other=await txn.get<string>('handle/'+handle)
+      if(!other||other===user.id||(await txn.get(blockedKeys(user.id,other))).size)return 'missing'
+      const left=friendKey(user.id,other),right=friendKey(other,user.id)
+      const link=await txn.get<FriendLink>(left)
+      if(action==='add'){
+        if(link)return 'ok'
+        await txn.put<FriendLink>(left,{handle,status:'outgoing'})
+        await txn.put<FriendLink>(right,{handle:myHandle,status:'incoming'})
+      }else if(action==='accept'){
+        if(link?.status==='friend')return 'ok'
+        if(link?.status!=='incoming')return 'changed'
+        await txn.put<FriendLink>(left,{handle,status:'friend'})
+        await txn.put<FriendLink>(right,{handle:myHandle,status:'friend'})
+      }else{
+        if(!link)return 'ok'
+        const expected=action==='decline'?'incoming':action==='cancel'?'outgoing':'friend'
+        if(link.status!==expected)return 'changed'
+        await txn.delete([left,right])
+      }
+      return 'ok'
+    })
+  }
   async block(who:string,other:string){
-    await this.ctx.storage.put('block/'+who+'/'+other,true)
+    await this.ctx.storage.transaction(async txn=>{
+      await txn.put('block/'+who+'/'+other,true)
+      await txn.delete([friendKey(who,other),friendKey(other,who)])
+    })
   }
   async settings(user:string,input?:Record<string,unknown>) {
     if(input) await this.ctx.storage.put('settings/'+user,input)
@@ -590,7 +700,8 @@ export default {
     if(endpoint==='api' || endpoint.length>120) return problem('Not found',404)
     const ip=req.headers.get('CF-Connecting-IP')
     if(ip && endpoint!=='health'){
-      const heavy=endpoint==='rooms'||endpoint==='session'||endpoint.startsWith('auth/')||(endpoint==='daily'&&req.method==='POST')
+      const heavy=endpoint==='rooms'||endpoint==='session'||endpoint.startsWith('auth/')||
+        (['daily','profile','friends'].includes(endpoint)&&req.method==='POST')
       const binding=heavy?env.WRITE_LIMIT:env.GAME_LIMIT
       const sessionKey=cookie(req,'remorse_account') ?? cookie(req,'remorse_guest')
       const key=!heavy && sessionKey && /^[a-f0-9]{32}$/.test(sessionKey) ? sessionKey : ip
@@ -753,7 +864,41 @@ export default {
       if(!input || typeof input!=='object' || Array.isArray(input))return problem('Invalid settings')
       return json(await lobby(env).settings(player.id,input))
     }
-    if(endpoint==='profile' && req.method==='GET') return player.account?json(await lobby(env).profile(player)):problem('Sign in to view a profile',401)
+    if(endpoint==='profile'&&(req.method==='GET'||req.method==='POST')){
+      if(!player.account)return problem('Sign in to manage your profile',401)
+      if(req.method==='GET')return json(await lobby(env).profilePage(player))
+      if(Number(req.headers.get('content-length')??0)>maxProfileBody)return problem('Profile photo is too large',413)
+      const text=await req.text()
+      if(text.length>maxProfileBody)return problem('Profile photo is too large',413)
+      const edit=parseProfileEdit(await new Response(text).json().catch(()=>null))
+      if(!edit)return problem('Check your display name, country, bio, and photo')
+      return json(await lobby(env).updateProfile(player,edit))
+    }
+    if(endpoint==='friends'&&(req.method==='GET'||req.method==='POST')){
+      if(!player.account)return problem('Sign in to manage friends',401)
+      if(req.method==='GET')return json(await lobby(env).friends(player.id))
+      const input=await req.json<{handle?:string;action?:FriendAction}>().catch(()=>null)
+      if(!validHandle(input?.handle)||!input.action||!['add','accept','decline','cancel','remove'].includes(input.action))
+        return problem('Choose a valid player and friend action')
+      const result=await lobby(env).changeFriend(player,input.handle.toLowerCase(),input.action)
+      return result==='ok'?json({ok:true}):result==='changed'?problem('This request changed. Refresh your friends list.',409):problem('Player not found',404)
+    }
+    if(req.method==='GET'&&(endpoint==='players'||endpoint.startsWith('player/')||endpoint.startsWith('avatar/'))){
+      if(!player.account)return problem('Sign in to view player profiles',401)
+      const handle=endpoint==='players'?url.searchParams.get('q')?.trim():endpoint.split('/')[1]
+      if(!validHandle(handle))return problem('Enter at least three characters of a player’s username')
+      const normalized=handle.toLowerCase()
+      if(endpoint==='players')return json(await lobby(env).findPlayers(player.id,normalized))
+      if(endpoint.startsWith('avatar/')){
+        const photo=await lobby(env).avatar(player.id,normalized)
+        if(!photo)return problem('Photo not found',404)
+        return new Response(Uint8Array.from(atob(photo),byte=>byte.charCodeAt(0)),{headers:{
+          'content-type':'image/jpeg','x-content-type-options':'nosniff','cache-control':'private, max-age=300',
+        }})
+      }
+      const card=await lobby(env).playerCard(player.id,normalized)
+      return card?json(card):problem('Player not found',404)
+    }
     if(endpoint==='watch' && req.method==='GET') return json(await lobby(env).watch())
     if(endpoint==='leaders' && req.method==='GET') return json(await lobby(env).leaders())
     if(endpoint==='presence'&&req.method==='GET'){
@@ -791,10 +936,18 @@ export default {
       await room(env,id).initialize({id,control,seats:{white:player},rated:false,created:Date.now(),open:true})
       return json({id},201)
     }
-    const parts=/^room\/([a-f0-9]{32})(?:\/(join|command|rematch|report|block|ws))?$/.exec(endpoint)
+    const parts=/^room\/([a-f0-9]{32})(?:\/(join|command|rematch|report|block|ws|player))?$/.exec(endpoint)
     if(parts){
       const action=parts[2] ?? 'snapshot'
       if(!['GET','POST'].includes(req.method) || (req.method==='POST')!==['join','command','rematch','report','block'].includes(action)) return problem('Method not allowed',405)
+      if(action==='player'){
+        if(!player.account)return problem('Sign in to view player profiles',401)
+        const other=await room(env,parts[1]).opponentAccount(player.id)
+        if(!other)return problem('Player not found',404)
+        const store=lobby(env)
+        const card=await store.playerCard(player.id,await store.socialHandle(other))
+        return card?json(card):problem('Player not found',404)
+      }
       const headers=new Headers(req.headers)
       headers.set('x-remorse-player',JSON.stringify(player))
       const length=Number(headers.get('content-length') ?? 0)
