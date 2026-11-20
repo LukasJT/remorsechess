@@ -5,7 +5,6 @@ import { CURRENT_RULES,type Side } from './rules.ts'
 import { chooseMove } from './bot.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
-import { banner } from './ads.ts'
 import { digest, normalizeEmail, sendSignIn, type EmailRequest } from './email.ts'
 import { emptyDetails,maxProfileBody,parseProfileEdit,validHandle,type FriendAction,type FriendList,type FriendStatus,type PlayerCard,type ProfileDetails,type ProfileEdit } from './social.ts'
 
@@ -688,7 +687,6 @@ export default {
       url.protocol='https:'
       return Response.redirect(url.href,308)
     }
-    if(url.pathname.startsWith('/banner/'))return banner(url.pathname.slice(8))
     if(!url.pathname.startsWith('/api/')){
       const asset=await env.ASSETS.fetch(req)
       if(url.pathname!=='/' || !url.searchParams.has('game')) return asset

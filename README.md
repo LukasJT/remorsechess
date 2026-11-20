@@ -72,7 +72,9 @@ Rookie, Tactician, and Grandmaster run on the player's device in a browser worke
 
 ### Banner placement
 
-Adsterra banners are served in sandboxed iframes on isolated banner routes. Players can enable or disable them in Settings on each device. The lobby uses 728×90 on desktop and 320×50 on mobile. On wide screens, active matches can show 160×300 and 160×600 banners beside the game. The side banners leave the board and move log clear and are hidden on narrow screens and during the tutorial.
+Adsterra banners are on by default and can be turned off per device under **Settings → Sponsor banners**. The lobby and match screens show a 728×90 banner at the bottom on desktop and a 320×50 banner on mobile. Wide match screens also show a 160×300 banner on the left and a 160×600 banner on the right. The banners load in sandboxed iframes outside the board and move log. The tutorial has no banners.
+
+The Adsterra code runs on a separate, ad-only Workers origin with no game bindings. Use `npm run deploy:banners` when the banner codes or their wrapper change. The live site is the only origin allowed to embed the wrappers.
 
 ## Launch status
 

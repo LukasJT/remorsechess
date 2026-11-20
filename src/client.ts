@@ -69,7 +69,7 @@ const dice=['⚀','⚁','⚂','⚃','⚄','⚅']
 const cap=(s:Side)=>s==='white'?'White':'Black'
 const grid=Array.from({length:64},(_,i)=>(7-Math.floor(i/8))*8+i%8)
 const rules='<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · Devastated</dt><dd>Frozen. A friendly bishop must absolve it within its owner’s next three turns.</dd><dt>2–3 · Guilt-ridden</dt><dd>Can move but cannot capture until absolved.</dd><dt>4–5 · Unaffected</dt><dd>Moves and captures normally.</dd><dt>6 · Psychopath</dt><dd>After capturing, move the same piece again or end the turn. At three captures, bloodlust makes it capture only, even friendly pieces.</dd></dl><p>Select a friendly bishop in any of the eight squares around a guilt-ridden or devastated piece, including the corners. Tap a piece with a green circle and choose Absolve. Absolution uses one turn. An absolved piece never rolls again. A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.</p>'
-const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:false,moodMotion:true}
+const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:true,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
 type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
 type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean}
@@ -93,32 +93,30 @@ let presence:WebSocket|null=null, presenceTimer=0
 let names={white:'White',black:'Black'}
 let past:Match[]=[], future:Match[]=[], review:number|null=null, seed=initial(), lesson=0, promotion:Action[]=[]
 let audio:AudioContext|undefined, soundVersion=-1, drag:number|null=null, focus=4
-const bannerHost=document.createElement('div')
-bannerHost.className='sponsor-slot'
-document.body.appendChild(bannerHost)
+const sponsorRails=document.createElement('div')
+sponsorRails.className='sponsor-rails'
+const sponsorBottom=document.createElement('div')
+sponsorBottom.className='sponsor-bottom'
+const sponsorOrigin='https://remorse-chess-banners.lukastadros06.workers.dev'
+document.body.appendChild(sponsorRails)
+document.body.appendChild(sponsorBottom)
 function sponsorFrame(format:string,title:string){
-  return '<iframe title="'+title+'" loading="lazy" sandbox="allow-scripts allow-popups" referrerpolicy="strict-origin-when-cross-origin" src="/banner/'+format+'"></iframe>'
+  return '<aside class="sponsor"><span>Advertisement</span><iframe title="'+title+'" loading="lazy" sandbox="allow-scripts allow-popups allow-same-origin" referrerpolicy="origin" src="'+sponsorOrigin+'/banner/'+format+'"></iframe></aside>'
 }
 function renderSponsor(){
+  if(location.hostname!=='remorsechess.com')return
   const width=document.documentElement.clientWidth
-  const format=width>=765?'desktop':width>=346?'mobile':'hidden'
-  const inMatch=(mode==='online'||mode==='local'||mode==='bot')&&m?.start&&!m.game.result
-  const state=mode==='home'?(prefs.ads?format:'opt-in'):prefs.ads&&inMatch&&width>=1260?'match':'hidden'
-  if(bannerHost.dataset.state===state)return
-  bannerHost.dataset.state=state
-  document.body.classList.toggle('match-sponsors',state==='match')
-  if(state==='hidden'){bannerHost.replaceChildren();return}
-  if(state==='opt-in'){
-    bannerHost.innerHTML='<aside class="advert"><span>SPONSOR</span>'+button('show-ads','Show sponsor banner','link')+'</aside>'
-    bannerHost.querySelector('button')?.addEventListener('click',()=>{prefs.ads=true;savePrefs();renderSponsor()})
-    return
+  const inMatch=Boolean(m&&(mode==='online'||mode==='local'||mode==='bot'))
+  const rails=prefs.ads&&inMatch&&width>=1260&&!matchMedia('(max-height: 540px)').matches
+  const bottom=prefs.ads&&(mode==='home'||inMatch)?width>=752?'desktop':width>=320?'mobile':'':''
+  document.body.classList.toggle('match-sponsors',rails)
+  if(rails!==sponsorRails.hasChildNodes()){
+    sponsorRails.innerHTML=rails?sponsorFrame('match-left','Left banner ad')+sponsorFrame('match-right','Right banner ad'):''
   }
-  if(state==='match'){
-    bannerHost.innerHTML='<aside class="match-sponsor"><span>ADVERTISEMENT</span>'+sponsorFrame('match-left','Left sponsor banner')+'</aside>'+
-      '<aside class="match-sponsor tall"><span>ADVERTISEMENT</span>'+sponsorFrame('match-right','Right sponsor banner')+'</aside>'
-    return
+  if(sponsorBottom.dataset.format!==bottom){
+    sponsorBottom.dataset.format=bottom
+    sponsorBottom.innerHTML=bottom?sponsorFrame(bottom,'Bottom banner ad'):''
   }
-  bannerHost.innerHTML='<aside class="advert banner '+state+'"><span>ADVERTISEMENT</span>'+sponsorFrame(state,'Sponsor banner')+'</aside>'
 }
 window.addEventListener('resize',renderSponsor)
 async function api<T>(path:string,data?:unknown):Promise<T>{
