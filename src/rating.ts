@@ -1,10 +1,12 @@
 export type Rating = { rating:number; rd:number; volatility:number; games:number; updated:number; botGames?:number }
+export type RatingImpact = { win:number; draw:number; loss:number }
 export const defaultRating = (): Rating => ({rating:1500,rd:350,volatility:0.06,games:0,updated:0})
 export const botRating:Rating={...defaultRating(),rd:90}
 export const dailyRatedBotGames=3
 export const settledBotRatingLimit=12
 const botPlacementGames=12
 const scale = 173.7178
+export const ratingDelta=(previous:Rating,next:Rating)=>Math.round(next.rating)-Math.round(previous.rating)
 export function deviation(r:Rating, now:number) {
   const periods = r.updated ? Math.max(0,(now-r.updated)/86_400_000) : 0
   return Math.min(350,Math.hypot(r.rd, scale*r.volatility*Math.sqrt(periods)))

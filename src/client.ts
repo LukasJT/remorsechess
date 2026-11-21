@@ -2,7 +2,7 @@ import './style.css'
 import {homeGuide} from './home-guide.ts'
 import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,bonusIsRequired,CURRENT_RULES,type Action,type Side,type Kind,type Piece,type RulesVersion} from './rules.ts'
 import {command,dailyDays,makeMatch,expire,remaining,presets,type Match,type Control,type Command,type DailyLobby} from './match.ts'
-import {pool,deviation,type Rating} from './rating.ts'
+import {pool,deviation,type Rating,type RatingImpact} from './rating.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
 import {avatarSize,maxAvatarBytes,validHandle,type FriendAction,type FriendList,type PlayerCard,type ProfileEdit} from './social.ts'
 import {escapeHTML as safe,friendsGroups,friendsView,playerDialog,playerResults,profileEditor,profileView,type ProfilePage} from './social-view.ts'
@@ -80,13 +80,14 @@ function rulesText(version:RulesVersion=CURRENT_RULES){
 }
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:true,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
-type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
+type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number;ratingImpact?:RatingImpact}
 type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean;admin:boolean}
 type SearchTicket=Control&{rated:boolean;flexible:boolean;searchId:string}
 let session:Session|null=null
 let mode='home', m:Match|null=null, selected:number|null=null, absolve=false, flipped=false, tab='Moves', status=''
 let accountTab='', myProfile:ProfilePage|null=null, friendsVersion=0, lastFriends=''
 let id='', info:Snapshot['room']|null=null, seat:Side|null=null, offset=0, socket:WebSocket|null=null, busy=false
+let ratingImpact:RatingImpact|undefined
 let difficulty:Difficulty='tactical'
 let quickBot=false
 const botLevel=():Difficulty=>quickBot?'rookie':difficulty
@@ -242,6 +243,12 @@ function player(side:Side,v:Match){
   const displayRating=rating?' · '+Math.round(rating.rating)+(deviation(rating,Date.now())>110?'?':''):''
   return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'"><span class="icon '+side+'">♚</span><div><b>'+safe(who)+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+'</small></div><time id="clock-'+side+'">—</time></div>'
 }
+function ratingPreview({win,draw,loss}:RatingImpact){
+  const outcomes=[['Win',win],['Draw',draw],['Loss',loss]] as const
+  return '<section class="rating-impact" aria-labelledby="rating-impact-title"><h2 id="rating-impact-title">Rating change <small>Estimate</small></h2><dl>'+
+    outcomes.map(([label,delta])=>'<div><dt>'+label+'</dt><dd class="'+(delta>0?'gain':delta<0?'loss':'')+'">'+
+      (delta>0?'+'+delta:delta<0?'−'+Math.abs(delta):'0')+'</dd></div>').join('')+'</dl></section>'
+}
 function game(){
   if(!m)return '<main class="panel waiting"><p id="status" role="status">'+safe(status||'Opening room…')+'</p>'+button('home','Back to lobby')+'</main>'
   const v=view(),g=v.game,upper=flipped?'white':'black'
@@ -277,7 +284,8 @@ function game(){
   }).join('')
   const other=seat&&opposite(seat)
   const opponent=mode==='online'&&session?.account&&!info?.bot&&other&&info?.[other+'Account' as 'whiteAccount'|'blackAccount']?info[other]:null
-  return '<main class="game"><section class="game-board-area"><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.rated?'RATED ONLINE':info?.bot?'RANKED QUEUE · UNRATED':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+compactRoll+(g.result?button('result','Result'):'')+(canAct()&&bonusPiece&&!mandatoryBonus?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||prompt)+'</p><button class="game-jump" data-do="game-details" aria-controls="match-details">Moves &amp; details</button></section><aside id="match-details"><button class="board-jump" data-do="game-board">Back to board</button><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log" data-tab="'+tab+'">'+(tab==='Rules'?rulesText(g.rulesVersion):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(opponent?button('opponent-profile','Player profile'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
+  const preview=mode==='online'&&seat&&info?.rated&&review===null&&!g.result&&ratingImpact?ratingPreview(ratingImpact):''
+  return '<main class="game"><section class="game-board-area"><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.rated?'RATED ONLINE':info?.bot?'RANKED QUEUE · UNRATED':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+compactRoll+(g.result?button('result','Result'):'')+(canAct()&&bonusPiece&&!mandatoryBonus?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||prompt)+'</p>'+preview+'<button class="game-jump" data-do="game-details" aria-controls="match-details">Moves &amp; details</button></section><aside id="match-details"><button class="board-jump" data-do="game-board">Back to board</button><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log" data-tab="'+tab+'">'+(tab==='Rules'?rulesText(g.rulesVersion):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(opponent?button('opponent-profile','Player profile'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
 function render(){
   const accountView=$('#account')
@@ -432,7 +440,7 @@ function apply(data:Snapshot){
   const previousLog=m?.log.length??0
   const changed=first||m?.version!==data.match.version||seat!==data.seat
   if(changed)m=data.match
-  offset=data.now-Date.now();info=data.room;seat=data.seat
+  offset=data.now-Date.now();info=data.room;seat=data.seat;ratingImpact=data.ratingImpact
   if(first){flipped=seat==='black';soundVersion=data.match.version;seed=initial(data.match.game.rulesVersion)}
   if(changed){
     status='';render()

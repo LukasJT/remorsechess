@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import { command, compatibleClock, dailyControl, dailyDays, expire, makeMatch, quickClock, remaining, type Command, type Control, type DailyGame, type DailyLobby, type Entry, type Match, type SearchClock } from './match.ts'
-import { botRating, dailyRatedBotGames, defaultRating, deviation, pool, updateBotRating, updateRating, type Rating } from './rating.ts'
+import { botRating, dailyRatedBotGames, defaultRating, deviation, pool, ratingDelta, updateBotRating, updateRating, type Rating, type RatingImpact } from './rating.ts'
 import { CURRENT_RULES,type Side } from './rules.ts'
 import { chooseMove } from './bot.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
@@ -39,6 +39,14 @@ const photoKey=(player:string)=>'profile-photo/'+player
 const createdKey=(player:string)=>'account-created/'+player
 const emailOwnerKey=(player:string)=>'email-owner/'+player
 const seatOf = (info:RoomInfo,player:Identity):Side|null => info.seats.white?.id===player.id?'white':info.seats.black?.id===player.id?'black':null
+const ratingAfter=(info:RoomInfo,player:Rating,opponent:Rating,score:number,now:number)=>
+  info.bot?updateBotRating(player,score,now):updateRating(player,opponent,score,now)
+function estimateRatingImpact(info:RoomInfo,seat:Side):RatingImpact|undefined{
+  const player=info.ratings?.[seat],opponent=info.ratings?.[oppositeSeat(seat)]
+  if(!info.rated||!player||!opponent||seat===info.bot)return
+  const change=(score:number)=>ratingDelta(player,ratingAfter(info,player,opponent,score,info.created))
+  return {win:change(1),draw:change(0.5),loss:change(0)}
+}
 function parseControl(raw:Partial<Control>): Control|null {
   const {seconds,increment}=raw
   return typeof seconds==='number' && typeof increment==='number' && Number.isInteger(seconds) && Number.isInteger(increment) &&
@@ -101,8 +109,10 @@ export class Room extends DurableObject<Env> {
     if(!info || !match) return
     const {seats,invited,queueSearch,...visible}=info
     const log=[...(await this.ctx.storage.list<Entry>({prefix:'event/'})).values()]
+    const seat=player?seatOf(info,player):null
+    const ratingImpact=seat&&match.start&&!match.game.result?estimateRatingImpact(info,seat):undefined
     return {room:{...visible,white:seats.white?.name,black:seats.black?.name,
-      whiteAccount:seats.white?.account,blackAccount:seats.black?.account},seat:player?seatOf(info,player):undefined,
+      whiteAccount:seats.white?.account,blackAccount:seats.black?.account},seat,ratingImpact,
       match:{...match,game:{...match.game,seen:{}},log},now:Date.now()}
   }
   private nextAlarm(info:RoomInfo,m:Match){
@@ -651,7 +661,7 @@ export class Lobby extends DurableObject<Env> {
           const count=usage?.day===day?usage.count:0
           const counts=control.seconds>=60&&count<dailyRatedBotGames
           const seats:Seats={[side]:player,[bot]:{id:'ranked-bot',name:'Opponent',account:false}}
-          const rating=(await this.profile(player)).ratings[pool(control.seconds,control.increment)]??defaultRating()
+          const rating=this.ratingForBot(await this.profile(player),pool(control.seconds,control.increment))
           await room(this.env,ticketId).initialize({id:ticketId,seats,rated:counts,ratings:{[side]:rating,[bot]:botRating},control,created:now,open:false,bot,queueSearch:searchId})
           await this.ctx.storage.transaction(async txn=>{
             await txn.delete(myKey)
@@ -701,16 +711,9 @@ export class Lobby extends DurableObject<Env> {
         if(!profile) continue
         const score=final.winner===null?0.5:final.winner===(i===0?'white':'black')?1:0
         const old=starts[i]
-        let next=old
-        if(rated&&final.room.bot){
-          // Legacy profiles tracked only human games. Recover prior rated bot games from saved outcomes.
-          const botGames=old.botGames??Math.max(0,profile.history.filter(entry=>entry.pool===group&&entry.delta!==undefined).length-old.games)
-          next=updateBotRating({...old,botGames},score,now)
-        }else if(rated){
-          next=updateRating(old,starts[1-i],score,now)
-        }
+        const next=rated?ratingAfter(final.room,final.room.bot?this.ratingForBot(profile,group):old,starts[1-i],score,now):old
         if(rated) profile.ratings[group]=next
-        profile.history=[{id:final.room.id,result:score===1?'Win':score===0?'Loss':'Draw',pool:group,delta:rated?Math.round(next.rating)-Math.round(old.rating):undefined},...profile.history].slice(0,100)
+        profile.history=[{id:final.room.id,result:score===1?'Win':score===0?'Loss':'Draw',pool:group,delta:rated?ratingDelta(old,next):undefined},...profile.history].slice(0,100)
         await txn.put('profile/'+player.id,profile)
       }
       await txn.put('result/'+final.room.id,{...final,starts,applied:now})
@@ -718,6 +721,13 @@ export class Lobby extends DurableObject<Env> {
   }
   private async profileIn(txn:DurableObjectTransaction,user:Identity):Promise<Profile>{
     return await txn.get<Profile>('profile/'+user.id) ?? {user,ratings:{},history:[]}
+  }
+  private ratingForBot(profile:Profile,group:string):Rating{
+    const rating=profile.ratings[group]??defaultRating()
+    if(rating.botGames!==undefined)return rating
+    // Recover rated bot games from saved outcomes for profiles that only counted human games.
+    const ratedGames=profile.history.filter(entry=>entry.pool===group&&entry.delta!==undefined).length
+    return {...rating,botGames:Math.max(0,ratedGames-rating.games)}
   }
 }
 
