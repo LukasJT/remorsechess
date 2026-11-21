@@ -5,8 +5,9 @@ export type Piece = { id: number; side: Side; kind: Kind; square: number; mood: 
 export type Action = { type: 'move'; from: number; to: number; promotion?: Kind } | { type: 'absolve'; from: number; to: number } | { type: 'end' }
 export type Result = { winner: Side | null; reason: string }
 export type Ep = { pawn: number; square: number; target: number }
-export const CURRENT_RULES = 2
-export type RulesVersion = 1 | typeof CURRENT_RULES
+export const CURRENT_RULES = 3
+export type RulesVersion = 1 | 2 | typeof CURRENT_RULES
+export const bonusIsRequired = (version:RulesVersion) => version >= 3
 export type Game = { rulesVersion: RulesVersion; pieces: Piece[]; side: Side; bonus: number | null; turn: number; ep: Ep | null; nextEp: Ep | null; quiet: number; irreversible: boolean; seen: Record<string, number>; result: Result | null }
 export type Event = { turn: number; side: Side; action: Action; text: string; roll?: number; mood?: Mood; capture?: Piece; captureState?: {mood:Mood; originalRoll:number; kills:number}; vanished: Piece[] }
 export const opposite = (side: Side): Side => side === 'white' ? 'black' : 'white'
@@ -102,7 +103,7 @@ function applyBoard(game: Game, action: Exclude<Action, { type:'end' }>, p: Piec
 
 function preview(game: Game, action: Action): { next: Game; actor?: Piece; taken?: Piece } | undefined {
   if (game.result) return
-  if (action.type === 'end') return game.bonus !== null ? { next: game } : undefined
+  if (action.type === 'end') return game.bonus !== null && !bonusIsRequired(game.rulesVersion) ? { next: game } : undefined
   if (!Number.isInteger(action.from) || !Number.isInteger(action.to) || action.to < 0 || action.to > 63) return
   const p = at(game, action.from)
   if (!p || p.side !== game.side || p.mood === 'devastated' || (game.bonus !== null && p.id !== game.bonus)) return
@@ -154,7 +155,7 @@ function* moveTargets(game:Game,p:Piece):Generator<number>{
 }
 function* legalActions(game:Game,only?:number):Generator<Action>{
   if(game.result)return
-  if(game.bonus!==null&&only===undefined)yield {type:'end'}
+  if(game.bonus!==null&&only===undefined&&!bonusIsRequired(game.rulesVersion))yield {type:'end'}
   for(const p of game.pieces){
     if(p.side!==game.side||p.mood==='devastated'||(only!==undefined&&p.square!==only)||(game.bonus!==null&&game.bonus!==p.id))continue
     for(const to of moveTargets(game,p)){

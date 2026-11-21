@@ -23,8 +23,35 @@ test('all die faces and immediate bonus on the first six',()=>{
     assert.equal(event.roll,i+1)
     assert.equal(at(game,27)?.mood,mood)
     assert.equal(game.bonus!==null,i===5)
-    if(i===5)assert.ok(legal(game).every(a=>a.type==='end'||a.from===27))
+    if(i===5){
+      const options=legal(game)
+      assert.ok(options.length)
+      assert.ok(options.every(a=>a.type==='move'&&a.from===27))
+      assert.equal(play(game,{type:'end'}),undefined)
+    }
   }
+})
+test('saved games still replay optional bonuses under their original rules',()=>{
+  for(const rulesVersion of [1,2] as const){
+    const game=apply({...capturePosition(),rulesVersion},move(10,27),6).game
+    assert.ok(legal(game).some(action=>action.type==='end'))
+    const step=apply(game,{type:'end'})
+    assert.equal(step.event.text,'Bonus declined')
+    assert.equal(step.game.side,'black')
+  }
+})
+test('the turn passes immediately when the bonus piece has no legal move',()=>{
+  const blockedPawn=fixture([{square:18},{side:'black',square:27},{square:35}])
+  const blocked=apply(blockedPawn,move(18,27),6).game
+  assert.equal(at(blocked,27)?.mood,'psychopath')
+  assert.equal(blocked.bonus,null)
+  assert.equal(blocked.side,'black')
+
+  const bloodlust=fixture([{kind:'n',square:10,kills:2,roll:6,mood:'psychopath'},{side:'black',square:27}])
+  const stranded=apply(bloodlust,move(10,27)).game
+  assert.equal(at(stranded,27)?.mood,'bloodlust')
+  assert.equal(stranded.bonus,null)
+  assert.equal(stranded.side,'black')
 })
 test('absolution cures a piece without restoring a roll',()=>{
   const first=apply(capturePosition(),move(10,27),1).game
@@ -54,6 +81,7 @@ test('third capture immediately demands a capture on the bonus move',()=>{
   const state=fixture([{kind:'n',square:10,kills:2,roll:6,mood:'psychopath'},{side:'black',square:27},{square:44}])
   const next=apply(state,move(10,27)).game
   assert.equal(at(next,27)?.mood,'bloodlust')
+  assert.equal(play(next,{type:'end'}),undefined)
   assert.equal(play(next,move(27,33)),undefined)
   const bonus=apply(next,move(27,44))
   assert.equal(bonus.event.capture?.side,'white')
@@ -65,7 +93,8 @@ test('bonus uses the same clock and earns increment once',()=>{
   const first=command(match,'white',move(10,27),2000,()=>6)!
   assert.equal(first.clock.white,59000)
   assert.equal(first.game.side,'white')
-  const second=command(first,'white',{type:'end'},3000)!
+  assert.equal(command(first,'white',{type:'end'},2500),undefined)
+  const second=command(first,'white',move(27,44),3000)!
   assert.equal(second.clock.white,60000)
   assert.equal(second.game.side,'black')
   assert.equal(expire(first,61000).game.result?.winner,'black')
@@ -76,7 +105,7 @@ test('Daily clocks reset per turn and a bonus does not extend the deadline',()=>
   const bonus=command(match,'white',move(10,27),2000,()=>6)!
   assert.equal(bonus.game.side,'white')
   assert.equal(bonus.start+bonus.clock.white,1000+clock)
-  const completed=command(bonus,'white',{type:'end'},5000)!
+  const completed=command(bonus,'white',move(27,44),5000)!
   assert.equal(completed.game.side,'black')
   assert.equal(completed.clock.white,clock)
   assert.equal(completed.start+completed.clock.black,5000+clock)

@@ -57,7 +57,7 @@
           <ol>
             <li>Make a legal move or spend the turn having a bishop absolve a friendly piece.</li>
             <li>If a piece captures for the first time, apply its die result immediately. The move log records the result. Each piece gets exactly one roll, even after promotion or absolution.</li>
-            <li>If the capturing piece earns a bonus move and has a legal follow-up, play the second move with that same piece or select <strong>End turn</strong>.</li>
+            <li>If the capturing piece earns a bonus move and has a legal follow-up, play the second move with that same piece.</li>
             <li>At the end of your turn, your devastated pieces count down. A piece newly devastated that turn starts counting on your next turn.</li>
           </ol>
           <p>White moves first. Moves, captures, and absolution must leave your own king safe. In timed games your clock runs through the bonus move, and any increment is added once when the whole turn ends.</p>
@@ -92,7 +92,7 @@
         </section>
         <section id="bonus">
           <h2>Bonus moves after a capture</h2>
-          <p>A psychopath that captures on the first move of its turn can move again immediately. This includes the capture that rolled a 6. The same piece takes the bonus move and follows its normal movement and king-safety rules. You can decline it with <strong>End turn</strong>.</p>
+          <p>A psychopath that captures on the first move of its turn must move again if it has a legal move. This includes the capture that rolled a 6. The same piece takes the bonus move and follows its normal movement and king-safety rules. If the piece has no legal move, the turn ends automatically.</p>
           <p>A capture on the bonus move counts toward bloodlust without earning another move. There are at most two moves in a turn. If the bonus piece can legally take the enemy king, it wins immediately, before the other side gets a turn to respond.</p>
           <div class="example">
             <p><strong>Example.</strong> Black’s psychopath rook takes a white piece on e5 and checks the white king on e8 along the open e-file. If the rook can legally take e8 on its bonus move, Black can capture the king and win.</p>

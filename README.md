@@ -68,7 +68,7 @@ Set the Worker's `ADMIN_EMAIL` secret to the administrator's email address. The 
 
 ### Bots
 
-Rookie, Tactician, and Grandmaster run on the player's device in a browser worker. The bot searches under the same rules as a human, including all die outcomes, bishop rescues, optional bonus moves, and captures that force a reply. No paid inference API or remote training service is used.
+Rookie, Tactician, and Grandmaster run on the player's device in a browser worker. The bot searches under the same rules as a human, including all die outcomes, bishop rescues, mandatory bonus moves when legal, and captures that force a reply. No paid inference API or remote training service is used.
 
 `node scripts/train-bot.mjs 512` fits a position evaluator on 512 seeded self-play games. It uses game-disjoint validation and stores the learned weights in `src/bot-model.ts`. In a separate 24-game Tactician comparison against the previous production bot, the new bot won 19, lost 3, and drew 2. One draw reached the move cap. Use `node scripts/bench-bot.mjs prior 24 tactical` to isolate the learned evaluator from the search changes, or pass a path to an earlier bot module to compare end to end.
 

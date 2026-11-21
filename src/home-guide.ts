@@ -21,7 +21,7 @@ export const homeGuide = `
       <div class="guide-roll devastated"><span aria-hidden="true">⚀</span><div><dt>1 · Devastated</dt><dd>That piece cannot move. Absolve it within your next three turns or it disappears at the end of the third. The capture turn and your opponent’s turns do not count.</dd></div></div>
       <div class="guide-roll guilty"><span aria-hidden="true">⚁ ⚂</span><div><dt>2–3 · Guilt-ridden</dt><dd>The piece can still move to empty squares, but it cannot capture until absolved.</dd></div></div>
       <div class="guide-roll unaffected"><span aria-hidden="true">⚃ ⚄</span><div><dt>4–5 · Unaffected</dt><dd>The piece keeps moving and capturing as usual. It has used its roll.</dd></div></div>
-      <div class="guide-roll psychopath"><span aria-hidden="true">⚅</span><div><dt>6 · Psychopath</dt><dd>After capturing on the first move of your turn, that same piece may move again. You can take the bonus move or select <b>End turn</b>.</dd></div></div>
+      <div class="guide-roll psychopath"><span aria-hidden="true">⚅</span><div><dt>6 · Psychopath</dt><dd>After capturing on the first move of your turn, that same piece must move again if it has a legal move. Otherwise, the turn ends automatically.</dd></div></div>
     </dl>
   </div>
 
