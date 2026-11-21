@@ -166,7 +166,7 @@ function activityLabel(now=new Date()){
   const weekend=part('weekday')==='Sat'||part('weekday')==='Sun'
   const weekendBoost=weekend?2.35*Math.max(0,base-50):0
   const variation=Math.sin(Math.floor(now.getTime()/300000))*Math.min(12,base*0.06)
-  return 'Simulated online: '+activityNumber.format(Math.round(base+weekendBoost+variation))
+  return 'Online: '+activityNumber.format(Math.round(base+weekendBoost+variation))
 }
 function connectPresence(){
   clearTimeout(presenceTimer)
