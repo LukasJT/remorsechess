@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {initial,legal,play,at,type Game,type Piece,type Action} from '../src/rules.ts'
 import {dailyControl,makeMatch,command,expire} from '../src/match.ts'
-import {defaultRating, updateRating, pool} from '../src/rating.ts'
+import {botRating, settledBotRatingLimit, defaultRating, updateBotRating, updateRating, pool} from '../src/rating.ts'
 
 const move=(from:number,to:number):Action=>({type:'move',from,to})
 function fixture(pieces:Partial<Piece>[]):Game {
@@ -104,4 +104,34 @@ test('Glicko-2 updates both players from their previous ratings',()=>{
   assert.equal(pool(120,1),'Bullet')
   assert.equal(pool(180,0),'Blitz')
   assert.equal(pool(600,0),'Rapid')
+})
+
+test('early ranked results move ratings more than established results',()=>{
+  const now=Date.now()
+  const start=defaultRating()
+  let experienced=start
+  for(let games=0;games<20;games++)experienced=updateRating(experienced,botRating,0.5,now)
+  const early=updateRating(start,botRating,1,now).rating-start.rating
+  const late=updateRating(experienced,botRating,1,now).rating-experienced.rating
+  assert.ok(early>100)
+  assert.ok(late<25)
+})
+
+test('ranked bot rating settles gradually without reducing human rating deviation',()=>{
+  const now=Date.now()
+  const start=defaultRating()
+  let player=start
+  for(let prior=0;prior<=12;prior++){
+    const win=updateBotRating(player,1,now), loss=updateBotRating(player,0,now)
+    const limit=36-2*prior
+    assert.equal(win.rating-player.rating,limit)
+    assert.equal(player.rating-loss.rating,limit)
+    player=updateBotRating(player,0.5,now)
+  }
+  assert.equal(updateBotRating(player,1,now).rating-player.rating,settledBotRatingLimit)
+  assert.equal(player.games,0)
+  assert.equal(player.rd,start.rd)
+  assert.equal(player.updated,start.updated)
+  assert.equal(updateRating(player,botRating,0.5,now).botGames,13)
+  assert.equal(updateBotRating({...start,games:12},1,now).rating-start.rating,settledBotRatingLimit)
 })

@@ -1,8 +1,9 @@
-export type Rating = { rating:number; rd:number; volatility:number; games:number; updated:number }
+export type Rating = { rating:number; rd:number; volatility:number; games:number; updated:number; botGames?:number }
 export const defaultRating = (): Rating => ({rating:1500,rd:350,volatility:0.06,games:0,updated:0})
 export const botRating:Rating={...defaultRating(),rd:90}
 export const dailyRatedBotGames=3
-export const botRatingLimit=12
+export const settledBotRatingLimit=12
+const botPlacementGames=12
 const scale = 173.7178
 export function deviation(r:Rating, now:number) {
   const periods = r.updated ? Math.max(0,(now-r.updated)/86_400_000) : 0
@@ -33,15 +34,19 @@ export function updateRating(p:Rating, opponent:Rating, score:number, now:number
   }
   const volatility=Math.exp((left+right)/4)
   const rd=1/Math.sqrt(1/(phi**2+volatility**2)+1/variance)
-  return {rating:1500+scale*(mu+rd**2*g*(score-expected)),rd:rd*scale,volatility,games:p.games+1,updated:now}
+  return {...p,rating:1500+scale*(mu+rd**2*g*(score-expected)),rd:rd*scale,volatility,games:p.games+1,updated:now}
 }
 export function pool(seconds:number, increment:number) {
   const estimated=seconds+40*increment
   return estimated<180?'Bullet':estimated<600?'Blitz':'Rapid'
 }
 export function updateBotRating(p:Rating,score:number,now:number):Rating{
-  const effective={...p,rd:Math.min(deviation(p,now),110),updated:now}
+  const botGames=p.botGames??0
+  const remaining=Math.max(0,botPlacementGames-p.games-botGames)
+  const limit=settledBotRatingLimit+2*remaining
+  const rdCap=110+80*remaining/botPlacementGames
+  const effective={...p,rd:Math.min(deviation(p,now),rdCap),updated:now}
   const candidate=updateRating(effective,botRating,score,now)
-  const change=Math.max(-botRatingLimit,Math.min(botRatingLimit,candidate.rating-p.rating))
-  return {...p,rating:p.rating+change}
+  const change=Math.max(-limit,Math.min(limit,candidate.rating-p.rating))
+  return {...p,rating:p.rating+change,botGames:botGames+1}
 }

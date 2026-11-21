@@ -701,7 +701,14 @@ export class Lobby extends DurableObject<Env> {
         if(!profile) continue
         const score=final.winner===null?0.5:final.winner===(i===0?'white':'black')?1:0
         const old=starts[i]
-        const next=rated?(final.room.bot?updateBotRating(old,score,now):updateRating(old,starts[1-i],score,now)):old
+        let next=old
+        if(rated&&final.room.bot){
+          // Legacy profiles tracked only human games. Recover prior rated bot games from saved outcomes.
+          const botGames=old.botGames??Math.max(0,profile.history.filter(entry=>entry.pool===group&&entry.delta!==undefined).length-old.games)
+          next=updateBotRating({...old,botGames},score,now)
+        }else if(rated){
+          next=updateRating(old,starts[1-i],score,now)
+        }
         if(rated) profile.ratings[group]=next
         profile.history=[{id:final.room.id,result:score===1?'Win':score===0?'Loss':'Draw',pool:group,delta:rated?Math.round(next.rating)-Math.round(old.rating):undefined},...profile.history].slice(0,100)
         await txn.put('profile/'+player.id,profile)

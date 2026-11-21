@@ -142,8 +142,9 @@ const botResult=await waitFor(async()=>{
   const profile=await a('profile')
   if(profile.history[0]?.id===botId)return profile
 },'Bot result never finalized')
-assert.ok(botResult.history[0].delta<0&&botResult.history[0].delta>=-12)
+assert.ok(botResult.history[0].delta<-12&&botResult.history[0].delta>=-34)
 assert.equal(botResult.ratings.Blitz.games,left.ratings.Blitz.games)
+assert.equal(botResult.ratings.Blitz.botGames,1)
 assert.equal(botResult.ratings.Blitz.rd,left.ratings.Blitz.rd)
 assert.equal((await b('profile')).ratings.Blitz.rating,right.ratings.Blitz.rating)
 console.log('Ranked fallback smoke passed: delayed start, safe cancellation, server moves, and capped rating without changing human qualification.')
