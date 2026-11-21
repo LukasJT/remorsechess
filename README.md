@@ -64,6 +64,8 @@ Passkey registration and sign-in are available on the production apex and localh
 
 `node tests/ranked.mjs` verifies passkey registration and sign-in with ephemeral keys, a rated pairing, and exactly one rating update per player. It defaults to local development.
 
+Set the Worker's `ADMIN_EMAIL` secret to the administrator's email address. The account with that verified email can open **Profile → Users** to browse registered usernames, sign-up methods, and available registration dates. The directory is read-only. Accounts created before registration dates were recorded display an unavailable date.
+
 ### Bots
 
 Rookie, Tactician, and Grandmaster run on the player's device in a browser worker. The bot searches under the same rules as a human, including all die outcomes, bishop rescues, optional bonus moves, and captures that force a reply. No paid inference API or remote training service is used.

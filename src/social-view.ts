@@ -23,12 +23,13 @@ function avatar(card:PlayerCard){
     (card.avatar?'<img src="/api/avatar/'+encodeURIComponent(card.handle)+'?v='+encodeURIComponent(card.avatar)+'" alt="" width="160" height="160" loading="lazy">':'')+'</span>'
 }
 
-function socialNav(current:'profile'|'friends'){
+function socialNav(current:'profile'|'friends',admin=false){
   return '<nav class="social-nav" aria-label="Account"><a data-do="profile" href="/#profile"'+(current==='profile'?' aria-current="page"':'')+'>Profile</a>'+
-    '<a data-do="friends" href="/#friends"'+(current==='friends'?' aria-current="page"':'')+'>Friends</a></nav>'
+    '<a data-do="friends" href="/#friends"'+(current==='friends'?' aria-current="page"':'')+'>Friends</a>'+
+    (admin?'<a data-do="admin" href="/#admin">Users</a>':'')+'</nav>'
 }
 
-export function profileView(profile:ProfilePage,linkEmail:boolean){
+export function profileView(profile:ProfilePage,linkEmail:boolean,admin=false){
   const card={handle:profile.handle,...profile.details}
   const ratings=['Bullet','Blitz','Rapid'].map(group=>{
     const rating=profile.ratings[group]
@@ -36,7 +37,7 @@ export function profileView(profile:ProfilePage,linkEmail:boolean){
   }).join('')
   const history=profile.history.map(game=>'<li><a href="/?game='+encodeURIComponent(game.id)+'">'+s(game.pool)+' · '+s(game.result)+
     (game.delta===undefined?'':' · '+(game.delta>=0?'+':'')+game.delta)+'</a></li>').join('')
-  return socialNav('profile')+'<div class="profile-summary">'+avatar(card)+'<div><h1>'+s(card.displayName||profile.user.name)+'</h1>'+
+  return socialNav('profile',admin)+'<div class="profile-summary">'+avatar(card)+'<div><h1>'+s(card.displayName||profile.user.name)+'</h1>'+
     '<p class="profile-handle">@'+s(card.handle)+'</p>'+flag(card.country)+'</div><button class="primary" data-do="edit-profile">Edit profile</button></div>'+
     (card.bio?'<p class="profile-bio">'+s(card.bio)+'</p>':'')+'<dl class="profile-ratings">'+ratings+'</dl>'+
     '<h2>Game history</h2>'+(history?'<ul class="profile-history">'+history+'</ul>':'<p>No completed games yet.</p>')+

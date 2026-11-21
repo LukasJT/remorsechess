@@ -6,6 +6,7 @@ import {pool,deviation,type Rating} from './rating.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
 import {avatarSize,maxAvatarBytes,validHandle,type FriendAction,type FriendList,type PlayerCard,type ProfileEdit} from './social.ts'
 import {escapeHTML as safe,friendsGroups,friendsView,playerDialog,playerResults,profileEditor,profileView,type ProfilePage} from './social-view.ts'
+import type {AdminUsers} from './admin.ts'
 import type {PublicKeyCredentialCreationOptionsJSON,PublicKeyCredentialRequestOptionsJSON} from '@simplewebauthn/browser'
 const root=document.querySelector<HTMLElement>('#app')!
 const $=<T extends HTMLElement=HTMLElement>(s:string)=>document.querySelector<T>(s)
@@ -72,7 +73,7 @@ const rules='<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · De
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:true,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
 type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number}
-type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean}
+type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean;admin:boolean}
 type SearchTicket=Control&{rated:boolean;flexible:boolean;searchId:string}
 let session:Session|null=null
 let mode='home', m:Match|null=null, selected:number|null=null, absolve=false, flipped=false, tab='Moves', status=''
@@ -276,7 +277,7 @@ function render(){
   const oldLog=$('#log')
   const logScroll=oldLog?.dataset.tab===tab&&oldLog.clientHeight?
     {top:oldLog.scrollTop,atEnd:oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<24}:null
-  root.innerHTML='<header><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a><nav>'+button('rules','Rules')+button('leaders','Ratings')+button('settings','⚙ Settings')+button('friends','Friends')+(session?.account?button('profile','Profile'):session?.passkeys?button('sign-in','Sign in'):session?.signIn?'<a href="/api/auth/start">Sign in</a>':'')+'</nav></header>'+(mode==='home'?home():mode==='account'?'<main class="panel account'+(['friends','profile'].includes(accountTab)?' social-account':'')+'" id="account" data-page="'+safe(accountTab)+'">Loading…</main>':game())+'<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
+  root.innerHTML='<header><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a><nav>'+button('rules','Rules')+button('leaders','Ratings')+button('settings','⚙ Settings')+button('friends','Friends')+(session?.account?button('profile','Profile'):session?.passkeys?button('sign-in','Sign in'):session?.signIn?'<a href="/api/auth/start">Sign in</a>':'')+'</nav></header>'+(mode==='home'?home():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+'" id="account" data-page="'+safe(accountTab)+'">Loading…</main>':game())+'<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
   renderSponsor()
   if(mode==='account'&&accountView?.dataset.page===accountTab)$('#account')?.replaceWith(accountView)
   document.body.classList.toggle('crt',prefs.crt)
@@ -839,14 +840,14 @@ function square(sq:number){
 }
 async function account(which:string){
   const user=await login()
-  if(!user.account&&(which==='profile'||which==='friends')){
+  if(!user.account&&['profile','friends','admin'].includes(which)){
     if(!$('#modal'))render()
     signIn()
     return
   }
   closeRoom();void cancel();mode='account';accountTab=which;myProfile=null;lastFriends='';render();window.scrollTo(0,0)
   const node=$('#account')!
-  history.replaceState({},'',which==='profile'||which==='friends'?'/#'+which:'/')
+  history.replaceState({},'', ['profile','friends','admin'].includes(which)?'/#'+which:'/')
   if(which==='watch'){
     const games=await api<{id:string;white:string;black:string;control:Control;rated:boolean}[]>('watch')
     if(node.isConnected)node.innerHTML='<h1>Watch live games</h1>'+(games.length?'<ul>'+games.map(g=>'<li><a href="/?game='+safe(g.id)+'">'+safe(g.white)+' vs '+safe(g.black)+'</a> · '+clockLabel(g.control)+(g.rated?' · Rated':'')+'</li>').join('')+'</ul>':'<p>No public games are in progress.</p>')
@@ -856,12 +857,54 @@ async function account(which:string){
   }else if(which==='friends'){
     const list=await api<FriendList>('friends')
     if(node.isConnected){lastFriends=JSON.stringify(list);node.innerHTML=friendsView(list)}
+  }else if(which==='admin'){
+    node.innerHTML='<h1>Users</h1>'
+    if(!user.admin){
+      node.insertAdjacentHTML('beforeend','<p>Administrator access is required.</p>')
+      return
+    }
+    node.insertAdjacentHTML('afterbegin','<nav class="social-nav" aria-label="Account"><a href="/#profile" data-do="profile">Profile</a><a href="/#admin" aria-current="page">Users</a></nav>')
+    node.insertAdjacentHTML('beforeend','<form id="admin-search" class="friend-search"><label for="admin-query">Find by username</label><div><input id="admin-query" name="query" type="search" autocomplete="off" maxlength="39" placeholder="Username starts with"><button class="primary">Search</button></div></form><p id="admin-status" role="status"></p><ul class="admin-users"></ul><button id="admin-more" data-do="admin-more" hidden>Load more users</button>')
+    await loadAdminUsers(node)
   }else{
     const profile=await api<ProfilePage>('profile')
     if(node.isConnected){
       myProfile=profile
-      node.innerHTML=profileView(profile,Boolean(user.emailReady&&!user.emailLinked))
+      node.innerHTML=profileView(profile,user.emailReady&&!user.emailLinked,user.admin)
     }
+  }
+}
+const signUpMethods={passkey:'Passkey',email:'Email',github:'GitHub'}
+const signUpDate=new Intl.DateTimeFormat(undefined,{dateStyle:'medium'})
+async function loadAdminUsers(node:HTMLElement,query='',after=''){
+  if(node.dataset.loading)return
+  const notice=node.querySelector<HTMLElement>('#admin-status')!
+  const list=node.querySelector<HTMLElement>('.admin-users')!
+  const more=node.querySelector<HTMLButtonElement>('#admin-more')!
+  const search=node.querySelector<HTMLButtonElement>('#admin-search button')!
+  node.dataset.loading='true'
+  search.disabled=more.disabled=true
+  notice.textContent='Loading users…'
+  try{
+    const params=new URLSearchParams({q:query,after})
+    const page=await api<AdminUsers>('admin/users?'+params)
+    if(!node.isConnected)return
+    const rows=page.users.map(user=>{
+      const date=user.createdAt===undefined?'Date unavailable':signUpDate.format(user.createdAt)
+      return '<li><div><b>@'+safe(user.handle)+'</b>'+(user.displayName?'<small>'+safe(user.displayName)+'</small>':'')+'</div>'+
+        '<div>'+signUpMethods[user.registeredWith]+(user.registeredWith!=='email'&&user.emailLinked?' · Email linked':'')+'<small>'+safe(date)+'</small></div></li>'
+    }).join('')
+    if(!after)list.replaceChildren()
+    list.insertAdjacentHTML('beforeend',rows)
+    more.dataset.query=query
+    more.dataset.cursor=page.next??''
+    more.hidden=!page.next
+    const shown=list.childElementCount
+    notice.textContent=shown?shown+(shown===1?' user shown':' users shown'):query?'No matching users.':'No registered users yet.'
+  }catch(e){notice.textContent=(e as Error).message}
+  finally{
+    delete node.dataset.loading
+    search.disabled=more.disabled=false
   }
 }
 async function preparePhoto(file:File){
@@ -900,7 +943,7 @@ async function saveProfile(form:HTMLFormElement){
     $<HTMLDialogElement>('#modal')?.close()
     if(mode==='account'&&accountTab==='profile'){
       myProfile=saved
-      $('#account')!.innerHTML=profileView(saved,Boolean(session?.emailReady&&!session.emailLinked))+'<p role="status">Profile saved.</p>'
+      $('#account')!.innerHTML=profileView(saved,Boolean(session?.emailReady&&!session.emailLinked),session?.admin)+'<p role="status">Profile saved.</p>'
     }
   }catch(e){message.textContent=(e as Error).message}
   finally{submit.disabled=false}
@@ -976,7 +1019,12 @@ async function handle(action:string){
     case 'quiet':prefs={...prefs,volume:0,blood:'off',shake:false,flash:false,motion:true};savePrefs();render();return
     case 'more':if(!queue)clocksDialog();return
     case 'quick-clock':if(!queue){flexible=!flexible;render();$('[data-do="quick-clock"]')?.focus({preventScroll:true})}return
-    case 'watch':case 'leaders':case 'profile':case 'friends':await account(action);return
+    case 'watch':case 'leaders':case 'profile':case 'friends':case 'admin':await account(action);return
+    case 'admin-more':{
+      const node=$('#account'),more=$('#admin-more')
+      if(node&&more?.dataset.cursor)await loadAdminUsers(node,more.dataset.query,more.dataset.cursor)
+      return
+    }
     case 'edit-profile':if(myProfile)modal(profileEditor(myProfile),'profile-edit');return
     case 'opponent-profile':if(id)showPlayer(await api<PlayerCard>('room/'+id+'/player'));return
     case 'logout':await api('auth/logout',{});location.assign('/');return
@@ -1065,6 +1113,11 @@ root.addEventListener('submit',event=>{
   const form=event.target as HTMLFormElement
   if(form.id==='profile-edit'){event.preventDefault();void saveProfile(form);return}
   if(form.id==='friend-search'){event.preventDefault();void findPlayers(form);return}
+  if(form.id==='admin-search'){
+    event.preventDefault()
+    void loadAdminUsers($('#account')!,String(new FormData(form).get('query')??'').trim())
+    return
+  }
   if(form.id==='email-start'){
     event.preventDefault()
     void sendEmailLink(form)
@@ -1138,7 +1191,7 @@ const route=()=>{
   const gameId=new URLSearchParams(location.search).get('game')
   const page=location.hash.slice(1)
   if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
-  else if(page==='profile'||page==='friends')void account(page).catch(e=>$('#account')?.replaceChildren(e.message))
+  else if(page==='profile'||page==='friends'||page==='admin')void account(page).catch(e=>$('#account')?.replaceChildren(e.message))
   else if(location.hash==='#daily')void openDaily().catch(e=>$('#daily-status')?.replaceChildren(e.message))
   else if(mode!=='home'||!root.hasChildNodes()){
     const guide=location.hash==='#how-to-play'

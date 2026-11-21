@@ -7,9 +7,10 @@ import { accountName, authentication, canUsePasskeys, registration, verifyExisti
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
 import { digest, normalizeEmail, sendSignIn, type EmailRequest } from './email.ts'
 import { emptyDetails,maxProfileBody,parseProfileEdit,validHandle,type FriendAction,type FriendList,type FriendStatus,type PlayerCard,type ProfileDetails,type ProfileEdit } from './social.ts'
+import type { AdminUser, AdminUsers } from './admin.ts'
 
 type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
-interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string }
+interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string; ADMIN_EMAIL?:string }
 type Identity = { id:string; name:string; account:boolean }
 type Seats = Partial<Record<Side,Identity>>
 type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side; queueSearch?:string }
@@ -35,6 +36,8 @@ const friendKey=(player:string,other:string)=>'friend/'+player+'/'+other
 const blockedKeys=(player:string,other:string)=>['block/'+player+'/'+other,'block/'+other+'/'+player]
 const detailsKey=(player:string)=>'profile-details/'+player
 const photoKey=(player:string)=>'profile-photo/'+player
+const createdKey=(player:string)=>'account-created/'+player
+const emailOwnerKey=(player:string)=>'email-owner/'+player
 const seatOf = (info:RoomInfo,player:Identity):Side|null => info.seats.white?.id===player.id?'white':info.seats.black?.id===player.id?'black':null
 function parseControl(raw:Partial<Control>): Control|null {
   const {seconds,increment}=raw
@@ -355,6 +358,7 @@ export class Lobby extends DurableObject<Env> {
       if(await txn.get(handle)||await txn.get(key))return false
       await txn.put(handle,record.user.id)
       await txn.put(key,record)
+      await txn.put(createdKey(record.user.id),Date.now())
       await txn.put('session/'+sessionID,{user:record.user,expires:Date.now()+7*86400_000})
       return true
     })
@@ -421,16 +425,47 @@ export class Lobby extends DurableObject<Env> {
         if(await txn.get(handleKey))return 'taken'
         user={id:'email:'+token(),name:handle,account:true}
         await txn.put(handleKey,user.id)
+        await txn.put(createdKey(user.id),Date.now())
       }
       await txn.put(index,user)
-      await txn.put('email-owner/'+user.id,true)
+      await txn.put(emailOwnerKey(user.id),true)
       await txn.put('session/'+sessionID,{user,expires:Date.now()+7*86400_000})
       await txn.delete(key)
       return 'ok'
     })
   }
   async hasEmail(user:string){
-    return Boolean(await this.ctx.storage.get('email-owner/'+user))
+    return Boolean(await this.ctx.storage.get(emailOwnerKey(user)))
+  }
+  async isAdmin(user:string){
+    const email=normalizeEmail(this.env.ADMIN_EMAIL)
+    if(!email)return false
+    const owner=await this.ctx.storage.get<Identity>('email-account/'+await digest(email))
+    return owner?.id===user
+  }
+  async adminUsers(viewer:string,prefix:string,after:string):Promise<AdminUsers|null>{
+    if(!await this.isAdmin(viewer))return null
+    const pageSize=40
+    const indexed=await this.ctx.storage.list<string>({
+      prefix:'handle/'+prefix,startAfter:after?'handle/'+after:undefined,limit:pageSize+1,
+    })
+    if(!indexed.size)return {users:[]}
+    const entries=[...indexed].slice(0,pageSize)
+    const metadata=await this.ctx.storage.get<number|boolean|ProfileDetails>(
+      entries.flatMap(([,id])=>[createdKey(id),emailOwnerKey(id),detailsKey(id)]),
+    )
+    const users=entries.map(([key,id]):AdminUser=>{
+      const profile=metadata.get(detailsKey(id)) as ProfileDetails|undefined
+      const created=metadata.get(createdKey(id))
+      return {
+        handle:key.slice('handle/'.length),
+        displayName:profile?.displayName||undefined,
+        registeredWith:id.startsWith('passkey:')?'passkey':id.startsWith('email:')?'email':'github',
+        emailLinked:metadata.get(emailOwnerKey(id))===true,
+        createdAt:typeof created==='number'?created:undefined,
+      }
+    })
+    return {users,next:indexed.size>pageSize?users.at(-1)?.handle:undefined}
   }
   async logout(id:string){ await this.ctx.storage.delete('session/'+id) }
   async profile(user:Identity):Promise<Profile>{
@@ -848,9 +883,21 @@ export default {
       return problem('Not found',404)
     }
     if(endpoint==='session'){
-      const resp=json({name:player.name,account:player.account,signIn,passkeys,emailReady,emailLinked:profile?await lobby(env).hasEmail(profile.id):false})
+      const [emailLinked,admin]=profile
+        ?await Promise.all([lobby(env).hasEmail(profile.id),lobby(env).isAdmin(profile.id)])
+        :[false,false]
+      const resp=json({name:player.name,account:player.account,signIn,passkeys,emailReady,emailLinked,admin})
       if(!guestValid) resp.headers.append('set-cookie',setCookie(req,'remorse_guest',guest,86400*30))
       return resp
+    }
+    if(endpoint==='admin/users'&&req.method==='GET'){
+      if(!profile)return problem('Sign in to view the user directory',401)
+      const prefix=(url.searchParams.get('q')??'').trim().toLowerCase()
+      const after=url.searchParams.get('after')??''
+      if(!/^[a-z0-9_-]{0,39}$/.test(prefix)||(after&&(!validHandle(after)||!after.startsWith(prefix))))
+        return problem('Enter a valid username prefix')
+      const page=await lobby(env).adminUsers(profile.id,prefix,after)
+      return page?json(page):problem('Administrator access is required',403)
     }
     if(!profile && !guestValid) return problem('Start a guest session first',401)
     if(endpoint==='settings' && (req.method==='GET'||req.method==='POST')){

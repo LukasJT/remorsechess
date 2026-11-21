@@ -115,6 +115,10 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .friend-search input { flex: 1; }
 .friend-search button { flex-shrink: 0; }
 .social-list { list-style: none; margin: 0; padding: 0; }
+.admin-users { list-style: none; margin: 0 0 .75rem; padding: 0; }
+.admin-users li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: .75rem; padding: .7rem 0; border-top: 1px solid var(--line); }
+.admin-users small { margin-top: .15rem; }
+#admin-status { margin-block: .65rem; color: var(--muted); }
 .social-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding-block: .75rem; border-top: 1px solid var(--line); }
 .social-row .profile-avatar { width: 46px; font-size: 1rem; }
 .social-person { min-width: 0; overflow-wrap: anywhere; }
