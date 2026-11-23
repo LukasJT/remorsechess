@@ -333,3 +333,39 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .ratings-table { overflow-x:auto; }
 .ratings-table table { width:100%; border-collapse:collapse; text-align:left; }
 .ratings-table :is(th,td) { padding:.5rem; border-bottom:1px solid #614853; }
+
+/* Site navigation */
+:root { --site-rail: 0px; }
+.site-bar { justify-content:flex-start; min-height:58px; padding-inline:16px; }
+#site-menu { display:inline-flex; align-items:center; gap:.4rem; min-height:42px; box-shadow:none; }
+#site-menu svg, #site-nav svg { width:1.15rem; height:1.15rem; flex:none; }
+#site-nav { display:none; flex-direction:column; align-items:stretch; gap:0; padding:.55rem .65rem; background:#21171c; }
+.site-menu-open #site-nav { display:flex; border-bottom:1px solid #634652; }
+.site-nav-group { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; padding:.35rem 0; }
+.site-nav-group + .site-nav-group { border-top:1px solid #523743; }
+#site-nav :is(a,button) {
+  display:flex; align-items:center; gap:.62rem; width:100%; min-height:42px; padding:.5rem .65rem;
+  text-align:left; color:var(--paper); border:1px solid transparent; background:transparent;
+  box-shadow:none; font-size:.95rem; font-weight:700; text-decoration:none;
+}
+#site-nav svg { color:var(--muted); }
+#site-nav :is(a,button):hover { background:#392631; color:#ffdfaf; }
+#site-nav [aria-current=page] { background:#422b34; border-color:#725035; color:#ffdb9c; }
+#site-nav [aria-current=page] svg { color:var(--gold); }
+.match-open .site-bar { padding:6px 12px; }
+
+@media (min-width:1080px) {
+  :root { --site-rail: 178px; }
+  #app { margin-inline-start:var(--site-rail); }
+  .site-bar, .match-open .site-bar { position:fixed; z-index:6; inset:0 auto auto 0; width:var(--site-rail); min-height:66px; padding:0 14px; border:0; }
+  .site-bar .logo { font-size:.88rem; }
+  #site-menu { display:none; }
+  #site-nav, .site-menu-open #site-nav {
+    display:flex; position:fixed; z-index:6; inset:66px auto 0 0; width:var(--site-rail);
+    border-right:1px solid #5c3e46; border-bottom:0; overflow-y:auto; scrollbar-width:thin;
+  }
+  .site-nav-group { grid-template-columns:1fr; padding:.5rem 0; }
+  .hero h1 { font-size:clamp(3.5rem,7vw,7.4rem); }
+  .sponsor-rails { inset-inline-start:var(--site-rail); inset-block-start:28px; }
+  .sponsor-bottom { margin-inline-start:var(--site-rail); }
+}

@@ -290,6 +290,43 @@ function game(){
   const preview=mode==='online'&&seat&&info?.rated&&review===null&&!g.result&&ratingImpact?ratingPreview(ratingImpact):''
   return '<main class="game"><section class="game-board-area"><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.rated?'RATED ONLINE':info?.bot?'RANKED QUEUE · UNRATED':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+compactRoll+(g.result?button('result','Result'):'')+(canAct()&&bonusPiece&&!mandatoryBonus?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||prompt)+'</p>'+preview+'<button class="game-jump" data-do="game-details" aria-controls="match-details">Moves &amp; details</button></section><aside id="match-details"><button class="board-jump" data-do="game-board">Back to board</button><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log" data-tab="'+tab+'">'+(tab==='Rules'?rulesText(g.rulesVersion):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(opponent?button('opponent-profile','Player profile'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
+const navIcons={
+  play:'<path d="m9 5 11 7-11 7z"/>',
+  daily:'<rect x="4" y="6" width="16" height="14" rx="1"/><path d="M8 3v6m8-6v6M4 11h16"/>',
+  bot:'<rect x="5" y="8" width="14" height="12" rx="2"/><path d="M12 4v4m-4 5h1m6 0h1m-7 4h6"/>',
+  watch:'<path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2"/>',
+  openings:'<rect x="4" y="4" width="16" height="16"/><path d="M12 4v16M4 12h16"/>',
+  study:'<path d="M12 19c-2-2-5-3-9-2V5c4-1 7 0 9 2 2-2 5-3 9-2v12c-4-1-7 0-9 2zm0-12v12"/>',
+  rules:'<path d="M6 3h9l4 4v14H6zm9 0v5h4M9 12h7m-7 4h7"/>',
+  ratings:'<path d="M4 4v16h16M8 15l4-4 3 2 5-6"/>',
+  friends:'<circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m2-15a3 3 0 0 1 0 6m0 3a5 5 0 0 1 4 4v2"/>',
+  profile:'<circle cx="12" cy="8" r="4"/><path d="M5 21v-1a7 7 0 0 1 14 0v1"/>',
+  settings:'<path d="M5 6h14M5 12h14M5 18h14M9 4v4m6 2v4m-5 2v4"/>',
+  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+}
+const navIcon=(key:keyof typeof navIcons)=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+navIcons[key]+'</svg>'
+function siteNavigation(){
+  const current=mode==='home'?(playTab==='daily'?'daily-tab':'home'):mode==='account'?accountTab:''
+  const item=(icon:keyof typeof navIcons,label:string,action?:string,href?:string)=>{
+    const active=action!==undefined&&current===action?' aria-current="page"':''
+    const content=navIcon(icon)+'<span>'+label+'</span>'
+    if(href)return '<a href="'+href+'"'+(action?' data-do="'+action+'"':'')+active+'>'+content+'</a>'
+    return '<button type="button" data-do="'+action+'"'+active+'>'+content+'</button>'
+  }
+  return '<nav id="site-nav" aria-label="Main navigation"><div class="site-nav-group" role="group" aria-label="Play">'+
+    item('play','Play','home','/')+item('daily','Daily games','daily-tab','/#daily')+item('bot','Practice vs bot','bot')+
+    item('watch','Watch','watch','/#watch')+'</div><div class="site-nav-group" role="group" aria-label="Learn">'+
+    item('openings','Openings',undefined,'/openings/')+item('study','Study',undefined,'/study/')+item('rules','Rules',undefined,'/rules/')+
+    '</div><div class="site-nav-group" role="group" aria-label="Community and account">'+item('ratings','Ratings','leaders','/#leaders')+
+    (session?.account?item('ratings','Rating history','stats','/#stats'):'')+item('friends','Friends','friends','/#friends')+
+    (session?.account?item('profile','Profile','profile','/#profile'):session?.passkeys?item('profile','Sign in','sign-in'):
+      session?.signIn?item('profile','Sign in',undefined,'/api/auth/start'):'')+
+    item('settings','Settings','settings')+'</div></nav>'
+}
+function setSiteMenu(open:boolean){
+  $('#site-menu')?.setAttribute('aria-expanded',String(open))
+  $('#app')?.classList.toggle('site-menu-open',open)
+}
 function render(){
   const accountView=$('#account')
   const focused=document.activeElement instanceof HTMLElement&&document.activeElement.matches('[data-square]')
@@ -300,7 +337,12 @@ function render(){
   const oldLog=$('#log')
   const logScroll=oldLog?.dataset.tab===tab&&oldLog.clientHeight?
     {top:oldLog.scrollTop,atEnd:oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<24}:null
-  root.innerHTML='<header><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a><nav>'+button('rules','Rules')+button('leaders','Ratings')+button('settings','⚙ Settings')+button('friends','Friends')+(session?.account?button('profile','Profile'):session?.passkeys?button('sign-in','Sign in'):session?.signIn?'<a href="/api/auth/start">Sign in</a>':'')+'</nav></header>'+(mode==='home'?home():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+'" id="account" data-page="'+safe(accountTab)+'">Loading…</main>':game())+'<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
+  root.innerHTML='<header class="site-bar"><button type="button" id="site-menu" data-do="site-menu" aria-controls="site-nav" aria-expanded="false">'+
+    navIcon('menu')+'<span>Menu</span></button><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a></header>'+
+    siteNavigation()+(mode==='home'?home():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+
+    '" id="account" data-page="'+safe(accountTab)+'">Loading…</main>':game())+
+    '<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
+  setSiteMenu(false)
   renderSponsor()
   if(mode==='account'&&accountView?.dataset.page===accountTab)$('#account')?.replaceWith(accountView)
   document.body.classList.toggle('crt',prefs.crt)
@@ -1023,7 +1065,7 @@ async function account(which:string){
   }
   closeRoom();void cancel();mode='account';accountTab=which;myProfile=null;lastFriends='';render();window.scrollTo(0,0)
   const node=$('#account')!
-  history.replaceState({},'', ['profile','friends','admin','stats'].includes(which)?'/#'+which:'/')
+  history.replaceState({},'', ['profile','friends','admin','stats','watch','leaders','distribution'].includes(which)?'/#'+which:'/')
   if(which==='watch'){
     const games=await api<{id:string;white:string;black:string;control:Control;rated:boolean}[]>('watch')
     if(node.isConnected)node.innerHTML='<h1>Watch live games</h1>'+(games.length?'<ul>'+games.map(g=>'<li><a href="/?game='+safe(g.id)+'">'+safe(g.white)+' vs '+safe(g.black)+'</a> · '+clockLabel(g.control)+(g.rated?' · Rated':'')+'</li>').join('')+'</ul>':'<p>No public games are in progress.</p>')
@@ -1272,6 +1314,15 @@ function unlockAudio(){
 root.addEventListener('click',event=>{
   const el=(event.target as HTMLElement).closest<HTMLElement>('[data-do],[data-square],[data-control],[data-days],[data-tab],[data-promotion],[data-player],[data-friend-action]')
   if(!el)return
+  if(el.dataset.do==='site-menu'){
+    setSiteMenu(el.getAttribute('aria-expanded')!=='true')
+    return
+  }
+  if(el.closest('#site-nav')&&root.classList.contains('site-menu-open')){
+    setSiteMenu(false)
+    $('#site-menu')?.focus()
+  }
+  if(el instanceof HTMLAnchorElement&&(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey))return
   unlockAudio()
   if(el.dataset.friendAction){void friendAction(el as HTMLButtonElement);return}
   if(el.dataset.player){void openPlayer(el.dataset.player).catch(e=>modal('<h2>Player profile</h2><p>'+safe(e.message)+'</p>'));return}
@@ -1281,6 +1332,12 @@ root.addEventListener('click',event=>{
   else if(el.dataset.days!==undefined){if(!dailyBusy){dailyChoice=Number(el.dataset.days);render()}}
   else if(el.dataset.tab){tab=el.dataset.tab;render()}
   else if(el.dataset.promotion!==undefined){$<HTMLDialogElement>('#modal')?.close();confirmAction(promotion[Number(el.dataset.promotion)])}
+})
+root.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&root.classList.contains('site-menu-open')){
+    setSiteMenu(false)
+    $('#site-menu')?.focus()
+  }
 })
 root.addEventListener('change',event=>{
   const el=event.target as HTMLInputElement|HTMLSelectElement
@@ -1382,7 +1439,7 @@ const route=()=>{
   const gameId=new URLSearchParams(location.search).get('game')
   const page=location.hash.slice(1)
   if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
-  else if(page==='profile'||page==='friends'||page==='admin'||page==='stats')void account(page).catch(e=>$('#account')?.replaceChildren(e.message))
+  else if(['profile','friends','admin','stats','watch','leaders','distribution'].includes(page))void account(page).catch(e=>$('#account')?.replaceChildren(e.message))
   else if(location.hash==='#daily')void openDaily().catch(e=>$('#daily-status')?.replaceChildren(e.message))
   else if(mode!=='home'||!root.hasChildNodes()){
     const guide=location.hash==='#how-to-play'
