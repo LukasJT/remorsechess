@@ -78,7 +78,9 @@ const {id}=await b('queue',control)
 const room='room/'+id
 const view=await a(room)
 assert.equal(view.room.rated,true)
-assert.equal(view.room.ratings.white.rating,1500)
+assert.equal(view.room.nameplates.white,null)
+assert.equal(view.room.ratings,undefined)
+assert.equal(view.ratingImpact.placement,0)
 const opponent=await b(room)
 assert.notEqual(view.seat,opponent.seat)
 assert.ok(view.ratingImpact.win>0&&view.ratingImpact.loss<0)
@@ -101,12 +103,17 @@ const [left,right]=await waitFor(async()=>{
   if(profiles.every(p=>p.ratings.Blitz))return profiles
 },'Ranked result never finalized')
 assert.equal(left.ratings.Blitz.games,1);assert.equal(right.ratings.Blitz.games,1)
-assert.ok(left.ratings.Blitz.rating<1500)
-assert.ok(right.ratings.Blitz.rating>1500)
+assert.ok(left.ratings.Blitz.rating<600)
+assert.ok(right.ratings.Blitz.rating>600)
 assert.equal(left.history[0].id,id)
 assert.equal(left.history[0].delta,view.ratingImpact.loss)
 assert.equal(right.history[0].delta,opponent.ratingImpact.win)
 assert.equal((await a('profile')).ratings.Blitz.games,1)
+const archive=await a('rating-history?pool=Blitz')
+assert.equal(archive.events.length,1)
+assert.equal(archive.events[0].id,id)
+assert.equal(archive.events[0].sequence,1)
+assert.equal((await a('rating-result?game='+id)).after.rating,left.ratings.Blitz.rating)
 console.log('Ranked smoke passed: verified passkeys, sign-out/sign-in, rated pairing, and one rating update per account.')
 
 const botTicket={seconds:351,increment:2,rated:true,searchId:crypto.randomUUID()}
@@ -137,7 +144,7 @@ const human=await waitFor(async()=>{
 assert.equal(human.room.rated,true)
 assert.notEqual(human.seat,human.room.bot)
 assert.equal(human.room[human.room.bot],'Opponent')
-assert.ok(human.ratingImpact.win>0&&human.ratingImpact.loss<0)
+assert.ok(human.ratingImpact.win>0&&human.ratingImpact.loss<=0)
 const action=legal(human.match.game).find(a=>a.type==='move')
 assert.ok(action)
 const played=await a(botRoom+'/command',{id:crypto.randomUUID(),version:human.match.version,action})
@@ -151,11 +158,11 @@ const botResult=await waitFor(async()=>{
   const profile=await a('profile')
   if(profile.history[0]?.id===botId)return profile
 },'Bot result never finalized')
-assert.ok(botResult.history[0].delta<-12&&botResult.history[0].delta>=-34)
+assert.ok(botResult.history[0].delta<=0&&botResult.history[0].delta>=-130)
 assert.equal(botResult.history[0].delta,human.ratingImpact.loss)
 assert.equal(botResult.ratings.Blitz.games,left.ratings.Blitz.games)
 assert.equal(botResult.ratings.Blitz.botGames,1)
-assert.equal(botResult.ratings.Blitz.rd,left.ratings.Blitz.rd)
+assert.ok(botResult.ratings.Blitz.rd<left.ratings.Blitz.rd)
 assert.equal((await b('profile')).ratings.Blitz.rating,right.ratings.Blitz.rating)
 console.log('Ranked fallback smoke passed: delayed start, safe cancellation, server moves, and capped rating without changing human qualification.')
 
@@ -235,3 +242,29 @@ assert.equal((await a('friends')).friends.length,0)
 assert.equal((await b('friends')).friends.length,0)
 await a('friends',{handle:peer.handle,action:'add'},404)
 console.log('Profile and friends smoke passed: validation, photo storage, search and opponent cards, request acceptance, real presence, privacy, and blocking.')
+
+const placementA=session(),placementB=session()
+await Promise.all([register(placementA,'place-a-'+suffix),register(placementB,'place-b-'+suffix)])
+const placementControl={seconds:125,increment:0,rated:true}
+for(let number=1;number<=11;number++){
+  assert.equal((await placementA('queue',placementControl)).queued,true)
+  const {id}=await placementB('queue',placementControl)
+  const state=await placementA('room/'+id)
+  assert.equal(state.ratingImpact.placement,number<=10?number-1:undefined)
+  assert.equal(state.room.nameplates[state.seat]===null,number<=10)
+  await placementA('room/'+id+'/command',{id:crypto.randomUUID(),version:state.match.version,action:{type:'resign'}})
+  const result=await waitFor(()=>placementA('rating-result?game='+id),'Placement result did not settle')
+  assert.equal(result.sequence,number)
+}
+const bullet=(await placementA('rating-history?pool=Bullet')).events
+assert.equal(bullet.length,11)
+assert.equal(bullet[1].sequence,10)
+const casual={...placementControl,rated:false}
+assert.equal((await placementA('queue',casual)).queued,true)
+const casualId=(await placementB('queue',casual)).id
+const casualView=await placementA('room/'+casualId)
+assert.equal(casualView.room.nameplates[casualView.seat],Math.round(bullet[0].after.rating))
+assert.equal(casualView.ratingImpact,undefined)
+const distribution=await placementA('rating-distribution?pool=Bullet')
+assert.ok(distribution.counts.reduce((s,n)=>s+n,0)>=2)
+console.log('Placement smoke passed: 11 ranked games, isolated pools, casual nameplates, rating history and distribution.')

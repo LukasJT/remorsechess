@@ -146,21 +146,21 @@ test('early ranked results move ratings more than established results',()=>{
   assert.ok(late<25)
 })
 
-test('ranked bot rating settles gradually without reducing human rating deviation',()=>{
+test('bot placements use opponent strength, count ten results, and reduce uncertainty',()=>{
   const now=Date.now()
   const start=defaultRating()
-  let player=start
-  for(let prior=0;prior<=12;prior++){
-    const win=updateBotRating(player,1,now), loss=updateBotRating(player,0,now)
-    const limit=36-2*prior
-    assert.equal(win.rating-player.rating,limit)
-    assert.equal(player.rating-loss.rating,limit)
-    player=updateBotRating(player,0.5,now)
+  const stronger={...botRating,rating:1750}
+  assert.ok(updateBotRating(start,stronger,0.5,now).rating>updateBotRating(start,botRating,0.5,now).rating)
+  for(const score of [0,0.5,1]){
+    let player=start
+    for(let game=1;game<=11;game++){
+      const previous=player
+      player=updateBotRating(player,botRating,score,now+game)
+      assert.equal(player.botGames,game)
+      assert.equal(player.games,0)
+      assert.equal(player.updated,now+game)
+      assert.ok(player.rd<previous.rd)
+      if(game===11)assert.ok(Math.abs(player.rating-previous.rating)<=settledBotRatingLimit)
+    }
   }
-  assert.equal(updateBotRating(player,1,now).rating-player.rating,settledBotRatingLimit)
-  assert.equal(player.games,0)
-  assert.equal(player.rd,start.rd)
-  assert.equal(player.updated,start.updated)
-  assert.equal(updateRating(player,botRating,0.5,now).botGames,13)
-  assert.equal(updateBotRating({...start,games:12},1,now).rating-start.rating,settledBotRatingLimit)
 })

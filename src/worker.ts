@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import { command, compatibleClock, dailyControl, dailyDays, expire, makeMatch, quickClock, remaining, type Command, type Control, type DailyGame, type DailyLobby, type Entry, type Match, type SearchClock } from './match.ts'
-import { botRating, dailyRatedBotGames, defaultRating, deviation, pool, ratingDelta, updateBotRating, updateRating, type Rating, type RatingImpact } from './rating.ts'
+import { botRating, dailyRatedBotGames, countedGames, establishedRating, placementGames, placementPrior, pool, ratingDelta, updateBotRating, updateRating, type Rating, type RatingImpact, type RatingEvent } from './rating.ts'
 import { CURRENT_RULES,type Side } from './rules.ts'
 import { chooseMove } from './bot.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
@@ -13,13 +13,13 @@ type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
 interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string; ADMIN_EMAIL?:string }
 type Identity = { id:string; name:string; account:boolean }
 type Seats = Partial<Record<Side,Identity>>
-type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side; queueSearch?:string }
+type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side; queueSearch?:string; ratingModel?:1 }
 type Ticket = { owner:Identity; id:string; expires:number; clock:SearchClock; created:number; searchId?:string; cancelled?:boolean; bot?:Control }
 type DailyTicket = { owner:Identity; id:string; days:number; created:number; requestId:string; matched?:boolean }
 type PublicGame = { id:string; white:string; black:string; control:Control; rated:boolean }
 type Profile = { user:Identity; ratings:Record<string,Rating>; history:{id:string; result:string; pool:string; delta?:number}[] }
 type FriendLink={handle:string;status:FriendStatus}
-type Final = { room:RoomInfo; reason:string; winner:Side|null }
+type Final = { room:RoomInfo; reason:string; winner:Side|null; rules?:number }
 const json = (value:unknown,status=200) => Response.json(value,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}})
 const problem = (error:string,status=400) => json({error},status)
 const token = () => crypto.randomUUID().replaceAll('-','')
@@ -39,13 +39,18 @@ const photoKey=(player:string)=>'profile-photo/'+player
 const createdKey=(player:string)=>'account-created/'+player
 const emailOwnerKey=(player:string)=>'email-owner/'+player
 const seatOf = (info:RoomInfo,player:Identity):Side|null => info.seats.white?.id===player.id?'white':info.seats.black?.id===player.id?'black':null
+const ratingPool=(control:Control)=>control.days?'Daily':control.seconds?pool(control.seconds,control.increment):null
+const ratedSnapshot=(rating?:Rating)=>rating??placementPrior()
+const historyKey=(player:string,group:string)=>'rating-event/'+player+'/'+group+'/'
 const ratingAfter=(info:RoomInfo,player:Rating,opponent:Rating,score:number,now:number)=>
-  info.bot?updateBotRating(player,score,now):updateRating(player,opponent,score,now)
+  info.bot?updateBotRating(player,opponent,score,now):updateRating(player,opponent,score,now)
 function estimateRatingImpact(info:RoomInfo,seat:Side):RatingImpact|undefined{
   const player=info.ratings?.[seat],opponent=info.ratings?.[oppositeSeat(seat)]
   if(!info.rated||!player||!opponent||seat===info.bot)return
   const change=(score:number)=>ratingDelta(player,ratingAfter(info,player,opponent,score,info.created))
-  return {win:change(1),draw:change(0.5),loss:change(0)}
+  const placement=countedGames(player)
+  return {win:change(1),draw:change(0.5),loss:change(0),
+    ...(placement<placementGames?{placement,projected:[1,0.5,0].map(score=>Math.round(player.rating)+change(score)) as [number,number,number]}:{})}
 }
 function parseControl(raw:Partial<Control>): Control|null {
   const {seconds,increment}=raw
@@ -107,11 +112,23 @@ export class Room extends DurableObject<Env> {
     const info=await this.ctx.storage.get<RoomInfo>('room')
     const match=await this.ctx.storage.get<Match>('match')
     if(!info || !match) return
-    const {seats,invited,queueSearch,...visible}=info
+    const {seats,invited,queueSearch,ratings,ratingModel,...visible}=info
+    const group=ratingPool(info.control)
+    const nameplates:Partial<Record<Side,number|null>>={}
+    const casualKey='nameplates/'+(seats.white?.id??'-')+'/'+(seats.black?.id??'-')
+    const cached=!ratings&&group?await this.ctx.storage.get<typeof nameplates>(casualKey):undefined
+    if(!cached){
+      for(const side of ['white','black'] as const){
+        const owner=seats[side]
+        if(owner)nameplates[side]=side===info.bot?Math.round(ratings?.[side]?.rating??botRating.rating):
+          establishedRating(ratings?.[side]??(group&&owner.account?(await lobby(this.env).profile(owner)).ratings[group]:undefined))
+      }
+      if(!ratings&&group&&seats.white&&seats.black)await this.ctx.storage.put(casualKey,nameplates)
+    }
     const log=[...(await this.ctx.storage.list<Entry>({prefix:'event/'})).values()]
     const seat=player?seatOf(info,player):null
     const ratingImpact=seat&&match.start&&!match.game.result?estimateRatingImpact(info,seat):undefined
-    return {room:{...visible,white:seats.white?.name,black:seats.black?.name,
+    return {room:{...visible,nameplates:cached??nameplates,ratingPool:group,white:seats.white?.name,black:seats.black?.name,
       whiteAccount:seats.white?.account,blackAccount:seats.black?.account},seat,ratingImpact,
       match:{...match,game:{...match.game,seen:{}},log},now:Date.now()}
   }
@@ -131,7 +148,7 @@ export class Room extends DurableObject<Env> {
       await txn.put({room:info,match:stored})
       if(receipt) await txn.put('commands/'+receipt.seat,receipt.ids)
       if(newEvent) await txn.put('event/'+String(match.version).padStart(8,'0'),newEvent)
-      if(match.game.result) await txn.put<Final>('pending',{room:info,...match.game.result})
+      if(match.game.result) await txn.put<Final>('pending',{room:info,...match.game.result,rules:match.game.rulesVersion})
       await txn.setAlarm(this.nextAlarm(info,match))
     })
     const update=JSON.stringify({version:match.version})
@@ -478,8 +495,16 @@ export class Lobby extends DurableObject<Env> {
     return {users,next:indexed.size>pageSize?users.at(-1)?.handle:undefined}
   }
   async logout(id:string){ await this.ctx.storage.delete('session/'+id) }
+  private normalizeProfile(profile:Profile):Profile{
+    for(const [group,rating] of Object.entries(profile.ratings)){
+      if(rating.botGames!==undefined)continue
+      const recorded=new Set(profile.history.filter(row=>row.pool===group&&row.delta!==undefined).map(row=>row.id)).size
+      profile.ratings[group]={...rating,botGames:Math.max(0,recorded-rating.games)}
+    }
+    return profile
+  }
   async profile(user:Identity):Promise<Profile>{
-    return await this.ctx.storage.get<Profile>('profile/'+user.id) ?? {user,ratings:{},history:[]}
+    return this.normalizeProfile(await this.ctx.storage.get<Profile>('profile/'+user.id) ?? {user,ratings:{},history:[]})
   }
   async socialHandle(user:Identity){
     const preferred=user.name.toLowerCase()
@@ -587,9 +612,33 @@ export class Lobby extends DurableObject<Env> {
   async watch() {
     return [...(await this.ctx.storage.list<PublicGame>({prefix:'watch/',limit:40})).values()]
   }
+  async distribution(group:string){
+    const cacheKey='distribution/'+group
+    const cached=await this.ctx.storage.get<{time:number;counts:number[];first:number}>(cacheKey)
+    const now=Date.now()
+    if(cached&&now-cached.time<3_600_000)return cached
+    const counts=new Map<number,number>()
+    let startAfter:string|undefined
+    for(;;){
+      const batch=await this.ctx.storage.list<Profile>({prefix:'profile/',startAfter,limit:200})
+      for(const [key,raw] of batch){
+        startAfter=key
+        const rating=this.normalizeProfile(raw).ratings[group]
+        if(!rating||establishedRating(rating)===null||now-rating.updated>90*86_400_000)continue
+        const bucket=Math.floor(Math.round(rating.rating)/100)*100
+        counts.set(bucket,(counts.get(bucket)??0)+1)
+      }
+      if(batch.size<200)break
+    }
+    const first=counts.size?Math.min(...counts.keys()):0
+    const last=counts.size?Math.max(...counts.keys()):0
+    const result={time:now,first,counts:Array.from({length:(last-first)/100+1},(_,i)=>counts.get(first+i*100)??0)}
+    await this.ctx.storage.put(cacheKey,result)
+    return result
+  }
   async leaders(){
-    const records=[...(await this.ctx.storage.list<Profile>({prefix:'profile/',limit:1000})).values()]
-    return Object.fromEntries(['Bullet','Blitz','Rapid'].map(group=>[group,records.filter(p=>p.ratings[group] && deviation(p.ratings[group],Date.now())<=110).sort((a,b)=>b.ratings[group].rating-a.ratings[group].rating).slice(0,20).map(p=>({name:p.user.name,rating:Math.round(p.ratings[group].rating)}))]))
+    const records=[...(await this.ctx.storage.list<Profile>({prefix:'profile/',limit:1000})).values()].map(p=>this.normalizeProfile(p))
+    return Object.fromEntries(['Bullet','Blitz','Rapid'].map(group=>[group,records.filter(p=>establishedRating(p.ratings[group])!==null).sort((a,b)=>b.ratings[group].rating-a.ratings[group].rating).slice(0,20).map(p=>({name:p.user.name,rating:Math.round(p.ratings[group].rating)}))]))
   }
   async search(player:Identity,clock:SearchClock,rated:boolean,cancel=false,searchId?:string,acceptBot=false){
     return this.ctx.blockConcurrencyWhile(async()=>{
@@ -661,8 +710,8 @@ export class Lobby extends DurableObject<Env> {
           const count=usage?.day===day?usage.count:0
           const counts=control.seconds>=60&&count<dailyRatedBotGames
           const seats:Seats={[side]:player,[bot]:{id:'ranked-bot',name:'Opponent',account:false}}
-          const rating=this.ratingForBot(await this.profile(player),pool(control.seconds,control.increment))
-          await room(this.env,ticketId).initialize({id:ticketId,seats,rated:counts,ratings:{[side]:rating,[bot]:botRating},control,created:now,open:false,bot,queueSearch:searchId})
+          const rating=ratedSnapshot((await this.profile(player)).ratings[pool(control.seconds,control.increment)])
+          await room(this.env,ticketId).initialize({id:ticketId,seats,rated:counts,ratings:{[side]:rating,[bot]:botRating},control,created:now,open:false,bot,queueSearch:searchId,ratingModel:1})
           await this.ctx.storage.transaction(async txn=>{
             await txn.delete(myKey)
             await txn.put(activeKey,ticketId)
@@ -680,10 +729,10 @@ export class Lobby extends DurableObject<Env> {
       const seats=Math.random()<0.5 ? {white:opponent.owner,black:player} : {white:player,black:opponent.owner}
       const group=pool(control.seconds,control.increment)
       const ratings:RoomInfo['ratings']=rated?{
-        white:(await this.profile(seats.white)).ratings[group]??defaultRating(),
-        black:(await this.profile(seats.black)).ratings[group]??defaultRating(),
+        white:ratedSnapshot((await this.profile(seats.white)).ratings[group]),
+        black:ratedSnapshot((await this.profile(seats.black)).ratings[group]),
       }:undefined
-      await room(this.env,id).initialize({id,seats,rated,ratings,control,created:now,open:false})
+      await room(this.env,id).initialize({id,seats,rated,ratings,control,created:now,open:false,ratingModel:1})
       await this.ctx.storage.transaction(async txn=>{
         await txn.delete([myKey,opponentKey])
         await txn.put<PublicGame>('watch/'+id,{id,white:seats.white.name,black:seats.black.name,control,rated})
@@ -701,8 +750,8 @@ export class Lobby extends DurableObject<Env> {
       const accounts = await Promise.all(players.map(async player=>player?.account?this.profileIn(txn,player):null))
       const group=final.room.control.days?'Daily':pool(final.room.control.seconds,final.room.control.increment)
       const now=Date.now()
-      const starts=accounts.map(p=>p?.ratings[group] ?? defaultRating())
-      const rated=final.room.rated && Boolean(final.room.bot || (accounts[0] && accounts[1]))
+      const starts=accounts.map((p,i)=>p?.ratings[group]??final.room.ratings?.[i===0?'white':'black']??placementPrior())
+      const rated=final.reason!=='Inactive room expired' && final.room.rated && Boolean(final.room.bot || (accounts[0] && accounts[1]))
       for(let i=0;i<2;i++){
         const player=players[i], profile=accounts[i]
         if(!player) continue
@@ -711,8 +760,21 @@ export class Lobby extends DurableObject<Env> {
         if(!profile) continue
         const score=final.winner===null?0.5:final.winner===(i===0?'white':'black')?1:0
         const old=starts[i]
-        const next=rated?ratingAfter(final.room,final.room.bot?this.ratingForBot(profile,group):old,starts[1-i],score,now):old
-        if(rated) profile.ratings[group]=next
+        const color=i===0?'white':'black'
+        const opponent=final.room.bot?final.room.ratings?.[final.room.bot]??botRating:
+          final.room.ratings?.[oppositeSeat(color)]??starts[1-i]
+        const next=rated?ratingAfter(final.room,old,opponent,score,now):old
+        if(rated){
+          const prefix=historyKey(player.id,group)
+          if(countedGames(old)>0&&!(await txn.list({prefix,limit:1})).size)
+            await txn.put('rating-baseline/'+player.id+'/'+group,{rating:old,recorded:now})
+          profile.ratings[group]=next
+          const event:RatingEvent={id:final.room.id,time:now,sequence:countedGames(next),pool:group,
+            color,bot:Boolean(final.room.bot),score,opponent:opponent.rating,opponentRD:opponent.rd,
+            before:old,after:next,rules:final.rules,model:1}
+          await txn.put(prefix+String(event.sequence).padStart(12,'0'),event)
+          await txn.put('rating-result/'+player.id+'/'+event.id,event)
+        }
         profile.history=[{id:final.room.id,result:score===1?'Win':score===0?'Loss':'Draw',pool:group,delta:rated?ratingDelta(old,next):undefined},...profile.history].slice(0,100)
         await txn.put('profile/'+player.id,profile)
       }
@@ -720,15 +782,21 @@ export class Lobby extends DurableObject<Env> {
     })
   }
   private async profileIn(txn:DurableObjectTransaction,user:Identity):Promise<Profile>{
-    return await txn.get<Profile>('profile/'+user.id) ?? {user,ratings:{},history:[]}
+    return this.normalizeProfile(await txn.get<Profile>('profile/'+user.id) ?? {user,ratings:{},history:[]})
   }
-  private ratingForBot(profile:Profile,group:string):Rating{
-    const rating=profile.ratings[group]??defaultRating()
-    if(rating.botGames!==undefined)return rating
-    // Recover rated bot games from saved outcomes for profiles that only counted human games.
-    const ratedGames=profile.history.filter(entry=>entry.pool===group&&entry.delta!==undefined).length
-    return {...rating,botGames:Math.max(0,ratedGames-rating.games)}
+  async ratingHistory(player:string,group:string,before:string|null){
+    const prefix=historyKey(player,group)
+    const rows=await this.ctx.storage.list<RatingEvent>({prefix,end:before?prefix+before:undefined,reverse:true,limit:101})
+    const records=[...rows.values()]
+    const page=records.slice(0,100)
+    const profile=await this.ctx.storage.get<Profile>('profile/'+player)
+    return {rating:profile?this.normalizeProfile(profile).ratings[group]:undefined,
+      baseline:await this.ctx.storage.get<{rating:Rating;recorded:number}>('rating-baseline/'+player+'/'+group),events:page,next:records.length>100?String(page.at(-1)!.sequence).padStart(12,'0'):null}
   }
+  async ratingResult(player:string,id:string){
+    return await this.ctx.storage.get<RatingEvent>('rating-result/'+player+'/'+id)??null
+  }
+
 }
 
 export default {
@@ -960,6 +1028,23 @@ export default {
       }
       const card=await lobby(env).playerCard(player.id,normalized)
       return card?json(card):problem('Player not found',404)
+    }
+    if(endpoint==='rating-distribution'&&req.method==='GET'){
+      const group=url.searchParams.get('pool')??'Blitz'
+      if(!['Bullet','Blitz','Rapid','Daily'].includes(group))return problem('Invalid rating pool')
+      return json(await lobby(env).distribution(group))
+    }
+    if(endpoint==='rating-history'&&req.method==='GET'){
+      if(!profile)return problem('Sign in to view rating history',401)
+      const group=url.searchParams.get('pool')??'Blitz'
+      const before=url.searchParams.get('before')
+      if(!['Bullet','Blitz','Rapid','Daily'].includes(group)||(before&&!/^\d{12}$/.test(before)))return problem('Invalid rating history request')
+      return json(await lobby(env).ratingHistory(profile.id,group,before))
+    }
+    if(endpoint==='rating-result'&&req.method==='GET'){
+      const game=url.searchParams.get('game')
+      if(!profile||!game||!(/^[a-f0-9]{32}$/).test(game))return problem('Invalid rating result request')
+      return json(await lobby(env).ratingResult(profile.id,game))
     }
     if(endpoint==='watch' && req.method==='GET') return json(await lobby(env).watch())
     if(endpoint==='leaders' && req.method==='GET') return json(await lobby(env).leaders())

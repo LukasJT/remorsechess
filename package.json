@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test tests/*.test.ts",
-    "dev": "vite build && wrangler dev",
-    "build": "vite build",
+    "dev": "npm run build && wrangler dev",
+    "build": "vite build && node --experimental-strip-types scripts/build-study.mjs",
     "check": "tsc --noEmit",
     "deploy": "node scripts/deploy.mjs",
     "deploy:banners": "wrangler deploy --config wrangler.banners.jsonc"

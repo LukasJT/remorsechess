@@ -81,3 +81,11 @@ The Adsterra code runs on a separate, ad-only Workers origin with no game bindin
 ## Launch status
 
 Casual rooms, quick matchmaking, local play, tutorial, bots, Daily correspondence, and replay are covered by the playable implementation. The Cloudflare production site uses the same rules and smoke-tested ranked flow. Tournaments are a separate milestone.
+
+### Rating and study data
+
+Bullet, Blitz and Rapid have separate ten-game placements. The new, private placement prior is 600 with broad uncertainty. Existing pool records remain on their earned rating and carry forward their recorded results. Where older records lack dated individual ratings, the profile shows the carried-forward total and records individual rating points from the first new settlement. Daily remains unrated.
+
+Practice thresholds are historical Chess.com reference targets, drawn from the November 2023 leaderboard transcription in `src/rating-reference.ts`. They remain selectable while human calibration is pending. Rated fallback uses the existing 1500/RD90 anchor with opponent-adjusted result updates and an established-player cap of 12 points. Study lines use the current variant engine. The Lichess CC0 reference revision is linked on each opening page.
+
+Initial untimed self-play checks used paired colors and die seeds from the initial position. Rookie scored 4–8 against Tactician over 12 games. Grandmaster scored 14–8 against Tactician with two further games still unfinished at the action limit. Neither sample supplies human percentiles or proves performance at a particular clock. To reproduce, run `node --experimental-strip-types scripts/bench-bot.mjs tactical 12 rookie initial` and `node --experimental-strip-types scripts/bench-bot.mjs tactical 24 expert initial`.

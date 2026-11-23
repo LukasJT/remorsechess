@@ -55,6 +55,6 @@ export const homeGuide = `
     </section>
   </div>
   <p class="guide-play"><b>Ready to play?</b> Use <b>Quick match</b> for a casual game, <b>Play a friend</b> for an invite link, or <b>Practice vs bot</b> to try the rules on your own.</p>
-  <p class="guide-credit">Try the <a href="/strategy/">strategy guide</a> for three worked positions. Original variant by Bardelo Bardalini. <a href="/history/">Read the history and watch the original TikTok</a>.</p>
+  <p class="guide-credit">Try the <a href="/openings/">Opening explorer</a> · <a href="/study/">Study</a> · <a href="/strategy/">strategy guide</a> for three worked positions. Original variant by Bardelo Bardalini. <a href="/history/">Read the history and watch the original TikTok</a>.</p>
 </section>
 `

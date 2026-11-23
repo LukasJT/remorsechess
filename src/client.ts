@@ -1,8 +1,9 @@
+import {ratingDistribution,referenceCounts,referenceDate,referenceQuantile,referenceSource,type LivePool} from './rating-reference.ts'
 import './style.css'
 import {homeGuide} from './home-guide.ts'
 import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,bonusIsRequired,CURRENT_RULES,type Action,type Side,type Kind,type Piece,type RulesVersion} from './rules.ts'
 import {command,dailyDays,makeMatch,expire,remaining,presets,type Match,type Control,type Command,type DailyLobby} from './match.ts'
-import {pool,deviation,type Rating,type RatingImpact} from './rating.ts'
+import {pool,countedGames,establishedRating,ratingDelta,type Rating,type RatingImpact,type RatingEvent} from './rating.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
 import {avatarSize,maxAvatarBytes,validHandle,type FriendAction,type FriendList,type PlayerCard,type ProfileEdit} from './social.ts'
 import {escapeHTML as safe,friendsGroups,friendsView,playerDialog,playerResults,profileEditor,profileView,type ProfilePage} from './social-view.ts'
@@ -80,7 +81,7 @@ function rulesText(version:RulesVersion=CURRENT_RULES){
 }
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:true,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
-type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratings?:Partial<Record<Side,Rating>>};seat:Side|null;match:Match;now:number;ratingImpact?:RatingImpact}
+type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratingPool?:string|null;nameplates?:Partial<Record<Side,number|null>>};seat:Side|null;match:Match;now:number;ratingImpact?:RatingImpact}
 type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean;admin:boolean}
 type SearchTicket=Control&{rated:boolean;flexible:boolean;searchId:string}
 let session:Session|null=null
@@ -88,6 +89,7 @@ let mode='home', m:Match|null=null, selected:number|null=null, absolve=false, fl
 let accountTab='', myProfile:ProfilePage|null=null, friendsVersion=0, lastFriends=''
 let id='', info:Snapshot['room']|null=null, seat:Side|null=null, offset=0, socket:WebSocket|null=null, busy=false
 let ratingImpact:RatingImpact|undefined
+let practiceRating:number|null=null
 let difficulty:Difficulty='tactical'
 let quickBot=false
 const botLevel=():Difficulty=>quickBot?'rookie':difficulty
@@ -239,15 +241,16 @@ const canAct=()=>Boolean(m?.start&&!m.game.result&&!busy&&review===null&&(mode!=
 function player(side:Side,v:Match){
   const who=mode==='online'?(info?.bot===side?'Opponent':info?.[side]??'Open seat'):
     mode==='bot'&&side!==human?(quickBot?'Opponent':difficulties[botLevel()].name+' Bot'):names[side]
-  const rating=mode==='online'?info?.ratings?.[side]:undefined
-  const displayRating=rating?' · '+Math.round(rating.rating)+(deviation(rating,Date.now())>110?'?':''):''
+  const rating=mode==='online'?info?.nameplates?.[side]:side===human?practiceRating:null
+  const ratedName=mode==='online'?Boolean(info?.[side]):mode==='bot'&&!quickBot&&side===human
+  const displayRating=ratedName?' <span '+(mode==='bot'?'data-practice-rating ':'')+'title="'+safe((info?.ratingPool??(mode==='bot'&&v.control.seconds?pool(v.control.seconds,v.control.increment):'This game'))+(rating==null?' · No established rating':' rating'))+'">('+(rating??'?')+')</span>':''
   return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'"><span class="icon '+side+'">♚</span><div><b>'+safe(who)+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+'</small></div><time id="clock-'+side+'">—</time></div>'
 }
-function ratingPreview({win,draw,loss}:RatingImpact){
+function ratingPreview({win,draw,loss,placement,projected}:RatingImpact){
   const outcomes=[['Win',win],['Draw',draw],['Loss',loss]] as const
-  return '<section class="rating-impact" aria-labelledby="rating-impact-title"><h2 id="rating-impact-title">Rating change <small>Estimate</small></h2><dl>'+
-    outcomes.map(([label,delta])=>'<div><dt>'+label+'</dt><dd class="'+(delta>0?'gain':delta<0?'loss':'')+'">'+
-      (delta>0?'+'+delta:delta<0?'−'+Math.abs(delta):'0')+'</dd></div>').join('')+'</dl></section>'
+  return '<section class="rating-impact" aria-labelledby="rating-impact-title"><h2 id="rating-impact-title">'+(placement===undefined?'Rating change':'Placements '+placement+'/10')+' <small>Estimate</small></h2><dl>'+
+    outcomes.map(([label,delta],index)=>'<div><dt>'+label+'</dt><dd class="'+(delta>0?'gain':delta<0?'loss':'')+'">'+
+      (projected?.[index]??(delta>0?'+'+delta:delta<0?'−'+Math.abs(delta):'0'))+'</dd></div>').join('')+'</dl></section>'
 }
 function game(){
   if(!m)return '<main class="panel waiting"><p id="status" role="status">'+safe(status||'Opening room…')+'</p>'+button('home','Back to lobby')+'</main>'
@@ -351,10 +354,31 @@ function showResult(celebrate=false){
     '<div class="result-emblem" aria-hidden="true"><span class="result-symbol">'+(outcome==='win'?'♛':outcome==='loss'?'♚':'½')+'</span></div>'+
     '<h2 id="result-title">'+title+'</h2><p class="result-reason">'+safe(reason)+(info?.bot&&!info.rated&&mode==='online'?' · Unrated game':'')+'</p>'+
     '<p class="result-score" aria-label="White–Black score">'+score+winnerText+'</p>'+
+    (mode==='online'&&info?.rated&&seat?'<p data-settled-rating role="status">Saving rating…</p>':'')+
     '<div class="result-actions">'+again+(m.log.length?button('review-result','Review game'):'')+
     button('home','Back to lobby','link')+'</div></section>','result')
   $('#modal')?.setAttribute('aria-labelledby','result-title')
   if(victory) addVictoryBurst()
+  const line=$('[data-settled-rating]')
+  if(line&&id)void showSettledRating(id,line)
+}
+async function showSettledRating(game:string,line:Element){
+  for(let attempt=0;attempt<8&&line.isConnected;attempt++){
+    try{
+      const event=await api<RatingEvent|null>('rating-result?game='+game)
+      if(event){
+        const delta=ratingDelta(event.before,event.after)
+        const value=Math.round(event.after.rating)
+        line.textContent=event.sequence<10?event.pool+' placements '+event.sequence+'/10 · Predicted rating '+value:
+          event.sequence===10?'Placed in '+event.pool+' · '+value:
+          event.pool+' rating '+value+' ('+(delta>0?'+':'')+delta+')'
+        line.insertAdjacentHTML('afterend',button('stats','Rating history'))
+        return
+      }
+    }catch{break}
+    await new Promise(resolve=>window.setTimeout(resolve,350*(attempt+1)))
+  }
+  if(line.isConnected)line.textContent='Open Rating history to see the settled result.'
 }
 function addVictoryBurst(){
   const emblem=$('.result-emblem')
@@ -702,10 +726,35 @@ function bot(){
   }
   worker.postMessage({game:current.game,difficulty:level})
 }
+const practiceLevels=['rookie','tactical','expert'] as const
+const practiceTargets=[25,75,95] as const
+const practiceClocks=[presets[0],presets[3],presets[7],{seconds:0,increment:0}]
 function botSetup(){
-  modal('<h2>Practice against a bot</h2><form id="bot-form"><fieldset><legend>Difficulty</legend>'+
-    Object.entries(difficulties).filter(([key])=>key!=='ranked').map(([key,value])=>'<label class="bot-choice"><input type="radio" name="difficulty" value="'+key+'" '+(key===difficulty?'checked':'')+'><span><b>'+value.name+'</b><small>'+value.description+'</small></span></label>').join('')+
-    '</fieldset><label>Play as <select name="color"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select></label> <button class="primary">Start game</button></form>')
+  modal('<h2>Practice against a bot</h2><form id="bot-form"><div class="tools"><label>Clock <select name="clock">'+
+    practiceClocks.map((control,i)=>'<option value="'+i+'" '+(i===1?'selected':'')+'>'+clockLabel(control)+'</option>').join('')+
+    '</select></label><label>Play as <select name="color"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select></label></div>'+
+    '<label>Difficulty <input name="level" type="range" min="0" max="2" value="'+Math.max(0,practiceLevels.findIndex(level=>level===difficulty))+'"></label>'+
+    '<p data-bot-tier aria-live="polite"></p><label>Reference rating <input name="reference" type="number" min="100" max="3300" step="1"></label>'+
+    '<p>Targets use the '+referenceDate+' Chess.com buckets. Bot strength still needs human calibration.</p><button class="primary">Start game</button></form>')
+  const form=$<HTMLFormElement>('#bot-form')!
+  const range=form.querySelector<HTMLInputElement>('[name=level]')!
+  const exact=form.querySelector<HTMLInputElement>('[name=reference]')!
+  const clock=form.elements.namedItem('clock')
+  if(!(clock instanceof HTMLSelectElement))return
+  const describe=()=>{
+    const control=practiceClocks[Number(clock.value)]
+    const group=control.seconds?pool(control.seconds,control.increment):'Blitz'
+    const levels=practiceTargets.map(target=>referenceQuantile(group,target)!)
+    if(document.activeElement===exact&&Number.isFinite(exact.valueAsNumber)){
+      range.value=String(levels.reduce((best,next,i)=>Math.abs(exact.valueAsNumber-next)<Math.abs(exact.valueAsNumber-levels[best])?i:best,0))
+    }
+    const index=Number(range.value)
+    if(document.activeElement!==exact)exact.value=String(levels[index])
+    form.querySelector('[data-bot-tier]')!.textContent=difficulties[practiceLevels[index]].name+' · '+group+' target '+levels[index]+' (P'+practiceTargets[index]+')'
+  }
+  form.addEventListener('input',describe)
+  exact.addEventListener('blur',describe)
+  describe()
 }
 function signIn(){
   modal('<h2>Sign in or create an account</h2>'+
@@ -858,22 +907,133 @@ function square(sq:number){
     selected=p?.side===m.game.side&&selected!==sq?sq:null;absolve=false;render()
   }
 }
+async function openDistribution(node:HTMLElement){
+  node.innerHTML='<h1>Rating distribution</h1><form class="tools"><label>Pool <select name="pool"><option>Bullet</option><option selected>Blitz</option><option>Rapid</option><option>Daily</option></select></label>'+
+    '<label>Population <select name="source"><option value="local">Remorse players</option><option value="reference">Historical Chess.com reference</option></select></label></form><div data-distribution></div>'
+  const form=node.querySelector('form')!
+  const output=node.querySelector<HTMLElement>('[data-distribution]')!
+  let request=0
+  const refresh=async()=>{
+    const version=++request
+    const fields=new FormData(form)
+    const group=String(fields.get('pool'))
+    const reference=fields.get('source')==='reference'
+    output.textContent='Loading distribution…'
+    try{
+      if(reference&&!Object.hasOwn(referenceCounts,group)){
+        output.textContent='The historical reference has no Daily pool.'
+        return
+      }
+      const snapshot=reference?{first:100,counts:referenceCounts[group as LivePool],time:0}:
+        await api<{first:number;counts:number[];time:number}>('rating-distribution?pool='+group)
+      if(version!==request||!node.isConnected)return
+      const {first,counts,time}=snapshot
+      const total=counts.reduce((n,value)=>n+value,0)
+      const desc=reference?referenceDate+' leaderboard transcription. Rating labels are source buckets.':
+        'Established accounts with rating activity in the last 90 days · '+new Date(time).toLocaleDateString()
+      output.innerHTML='<p>'+safe(desc)+'</p><p>'+total.toLocaleString()+' players</p>'
+      if(reference)output.insertAdjacentHTML('beforeend','<p><a href="'+referenceSource+'">Source counts</a></p>')
+      if(!total){output.insertAdjacentHTML('beforeend','<p>No established ratings in this pool yet.</p>');return}
+      const rows=ratingDistribution(counts,first,100)
+      const peak=Math.max(...counts)
+      const width=475/rows.length
+      const axis=reference?'Rating bucket':'Rating range'
+      output.insertAdjacentHTML('beforeend',
+        '<svg class="rating-chart" viewBox="0 0 575 155" role="img" aria-label="Player count bars and cumulative rating percentile. See the table for exact bucket totals.">'+
+        '<text x="5" y="16" fill="currentColor">'+peak.toLocaleString()+'</text><text x="527" y="16" fill="currentColor">100%</text>'+
+        rows.map(({count},i)=>'<rect x="'+(50+width*i)+'" y="'+(130-count*113/peak)+'" width="'+(width*.8)+'" height="'+(count*113/peak)+'" fill="#b87977"/>').join('')+
+        '<polyline fill="none" stroke="currentColor" stroke-width="2" points="'+rows.map(({percentile},i)=>(50+width*(i+.5))+','+(130-113*percentile/100)).join(' ')+'"/>'+
+        '<text x="50" y="150" fill="currentColor">'+first+'</text><text x="490" y="150" fill="currentColor">'+rows.at(-1)!.rating+'</text></svg>'+
+        '<details class="ratings-table"><summary>View rating buckets</summary><table><thead><tr><th>'+axis+'</th><th>Players</th><th>Cumulative</th></tr></thead><tbody>'+
+        rows.map(row=>'<tr><td>'+row.rating+(reference?'':'–'+(row.rating+99))+'</td><td>'+row.count.toLocaleString()+'</td><td>'+row.percentile.toFixed(1)+'%</td></tr>').join('')+
+        '</tbody></table></details>')
+    }catch{if(version===request)output.textContent='Distribution is unavailable. Try again.'}
+  }
+  form.onchange=()=>void refresh()
+  await refresh()
+}
+async function openRatingStats(node:HTMLElement){
+  node.innerHTML='<h1>Rating history</h1><form class="tools"><label>Pool <select name="pool"><option>Bullet</option><option selected>Blitz</option><option>Rapid</option><option>Daily</option></select></label>'+
+    '<label>Period <select name="period"><option value="7">7 days</option><option value="30">30 days</option><option value="90" selected>90 days</option><option value="365">1 year</option><option value="0">All time</option></select></label></form><div data-rating-stats></div>'
+  const form=node.querySelector('form')!
+  const output=node.querySelector<HTMLElement>('[data-rating-stats]')!
+  let request=0
+  const refresh=async()=>{
+    const version=++request
+    const fields=new FormData(form)
+    const group=String(fields.get('pool'))
+    const days=Number(fields.get('period'))
+    const since=days?Date.now()-days*86400_000:0
+    output.textContent='Loading ratings…'
+    try{
+      const events:RatingEvent[]=[]
+      let before:string|null=null
+      let current:Rating|undefined
+      let baseline:{rating:Rating;recorded:number}|undefined
+      do{
+        const page:{rating?:Rating;baseline?:{rating:Rating;recorded:number};events:RatingEvent[];next:string|null}=await api('rating-history?pool='+group+(before?'&before='+before:''))
+        if(version!==request||!node.isConnected)return
+        current??=page.rating
+        baseline??=page.baseline
+        events.push(...page.events.filter(event=>event.time>=since))
+        before=page.events.some(event=>event.time<since)?null:page.next
+      }while(before)
+      const count=countedGames(current)
+      const title=establishedRating(current)??(count?'Predicted rating '+Math.round(current!.rating):'Unranked')
+      output.innerHTML='<h2>'+title+'</h2>'+(count<10?'<p>Placements '+count+'/10</p>':'')
+      if((baseline&&baseline.recorded>=since)||(!events.length&&current&&count)){
+        const prior=baseline?.rating??current!
+        output.insertAdjacentHTML('beforeend','<p>Earlier results carried forward · '+countedGames(prior)+' games at '+Math.round(prior.rating)+'. Detailed history begins with the new rating system.</p>')
+      }
+      if(!events.length){output.insertAdjacentHTML('beforeend','<p>No recorded rating changes in this period.</p>');return}
+      const ordered=events.slice().reverse()
+      const values=ordered.map(event=>Math.round(event.after.rating))
+      const low=Math.min(...values)-20, high=Math.max(...values)+20
+      const earliest=ordered[0].time, latest=ordered.at(-1)!.time
+      const point=(value:number,i:number)=>[45+(values.length===1?257:515*(ordered[i].time-earliest)/Math.max(1,latest-earliest)),110-(value-low)*90/(high-low)]
+      const plotted=values.map(point)
+      const firstPlaced=ordered.findIndex(e=>e.sequence>=10)
+      const line=(points:number[][],dashed=false)=>'<polyline fill="none" stroke="currentColor" stroke-width="2" '+(dashed?'stroke-dasharray="5 5" ':'')+'points="'+points.map(p=>p.join(',')).join(' ')+'"/>'
+      const placed=ordered.findIndex(e=>e.sequence===10)
+      const total=events.reduce((n,e)=>n+e.score,0)
+      const net=Math.round(ordered.at(-1)!.after.rating)-Math.round(ordered[0].before.rating)
+      const average=Math.round(events.reduce((total,e)=>total+e.opponent,0)/events.length)
+      const wins=events.filter(e=>e.score===1).length, draws=2*(total-wins)
+      const bestWin=events.filter(e=>e.score===1).sort((a,b)=>b.opponent-a.opponent)[0]
+      const peak=events.filter(e=>e.sequence>=10).reduce<RatingEvent|undefined>((best,e)=>!best||e.after.rating>best.after.rating?e:best,undefined)
+      output.insertAdjacentHTML('beforeend','<p>'+events.length+' games · '+wins+' wins · '+draws+' draws · '+(events.length-wins-draws)+' losses'+' · Net '+(net>0?'+':'')+net+' · Avg. opponent '+average+(bestWin?' · Best win '+Math.round(bestWin.opponent):'')+(peak?' · Peak '+Math.round(peak.after.rating)+' on '+new Date(peak.time).toLocaleDateString():'')+'</p>'+
+        '<svg class="rating-chart" viewBox="0 0 575 125" role="img" aria-label="Rating history. Dashed line shows placement estimates. The table gives exact values."><text x="4" y="25" fill="currentColor">'+high+'</text><text x="4" y="112" fill="currentColor">'+low+'</text>'+
+        line(plotted.slice(0,firstPlaced<0?undefined:firstPlaced+1),true)+(firstPlaced>=0?line(plotted.slice(firstPlaced)):'')+
+        (placed<0?'':'<circle cx="'+plotted[placed][0]+'" cy="'+plotted[placed][1]+'" r="5" fill="currentColor"><title>Placed after game 10</title></circle>')+
+        (values.length===1?'<circle cx="'+plotted[0][0]+'" cy="'+plotted[0][1]+'" r="3" fill="currentColor"/>':'')+
+        '</svg><div class="ratings-table"><table><thead><tr><th>Game</th><th>Result</th><th>Rating</th><th>Change</th></tr></thead><tbody>'+
+        events.map(e=>'<tr><td><a href="/?game='+safe(e.id)+'">'+new Date(e.time).toLocaleDateString()+'</a></td><td>'+(e.score===1?'Win':e.score===0?'Loss':'Draw')+'</td><td>'+Math.round(e.after.rating)+(e.sequence<10?' (predicted)':'')+'</td><td>'+ratingDelta(e.before,e.after)+'</td></tr>').join('')+
+        '</tbody></table></div>')
+    }catch{if(version===request)output.textContent='Rating history is unavailable. Try again.'}
+  }
+  form.onchange=()=>void refresh()
+  await refresh()
+}
 async function account(which:string){
   const user=await login()
-  if(!user.account&&['profile','friends','admin'].includes(which)){
+  if(!user.account&&['profile','friends','admin','stats'].includes(which)){
     if(!$('#modal'))render()
     signIn()
     return
   }
   closeRoom();void cancel();mode='account';accountTab=which;myProfile=null;lastFriends='';render();window.scrollTo(0,0)
   const node=$('#account')!
-  history.replaceState({},'', ['profile','friends','admin'].includes(which)?'/#'+which:'/')
+  history.replaceState({},'', ['profile','friends','admin','stats'].includes(which)?'/#'+which:'/')
   if(which==='watch'){
     const games=await api<{id:string;white:string;black:string;control:Control;rated:boolean}[]>('watch')
     if(node.isConnected)node.innerHTML='<h1>Watch live games</h1>'+(games.length?'<ul>'+games.map(g=>'<li><a href="/?game='+safe(g.id)+'">'+safe(g.white)+' vs '+safe(g.black)+'</a> · '+clockLabel(g.control)+(g.rated?' · Rated':'')+'</li>').join('')+'</ul>':'<p>No public games are in progress.</p>')
+  }else if(which==='distribution'){
+    await openDistribution(node)
+  }else if(which==='stats'){
+    await openRatingStats(node)
   }else if(which==='leaders'){
     const records=await api<Record<string,{name:string;rating:number}[]>>('leaders')
-    if(node.isConnected)node.innerHTML='<h1>Leaderboard</h1>'+Object.entries(records).map(([group,rows])=>'<h2>'+safe(group)+'</h2>'+(rows.length?'<ol>'+rows.map(p=>'<li>'+safe(p.name)+' · '+p.rating+'</li>').join('')+'</ol>':'<p>No established ratings yet.</p>')).join('')
+    if(node.isConnected)node.innerHTML='<h1>Leaderboard</h1>'+button('distribution','Rating distribution')+button('stats','My rating history')+Object.entries(records).map(([group,rows])=>'<h2>'+safe(group)+'</h2>'+(rows.length?'<ol>'+rows.map(p=>'<li>'+safe(p.name)+' · '+p.rating+'</li>').join('')+'</ol>':'<p>No established ratings yet.</p>')).join('')
   }else if(which==='friends'){
     const list=await api<FriendList>('friends')
     if(node.isConnected){lastFriends=JSON.stringify(list);node.innerHTML=friendsView(list)}
@@ -1039,7 +1199,7 @@ async function handle(action:string){
     case 'quiet':prefs={...prefs,volume:0,blood:'off',shake:false,flash:false,motion:true};savePrefs();render();return
     case 'more':if(!queue)clocksDialog();return
     case 'quick-clock':if(!queue){flexible=!flexible;render();$('[data-do="quick-clock"]')?.focus({preventScroll:true})}return
-    case 'watch':case 'leaders':case 'profile':case 'friends':case 'admin':await account(action);return
+    case 'distribution':case 'stats':case 'watch':case 'leaders':case 'profile':case 'friends':case 'admin':await account(action);return
     case 'admin-more':{
       const node=$('#account'),more=$('#admin-more')
       if(node&&more?.dataset.cursor)await loadAdminUsers(node,more.dataset.query,more.dataset.cursor)
@@ -1156,12 +1316,23 @@ root.addEventListener('submit',event=>{
   if(form.id==='bot-form'){
     event.preventDefault()
     const data=new FormData(form)
-    const value=data.get('difficulty')
-    if(typeof value!=='string'||value==='ranked'||!Object.hasOwn(difficulties,value))return
-    difficulty=value as Difficulty
+    const value=practiceLevels[Number(data.get('level'))]
+    const control=practiceClocks[Number(data.get('clock'))]
+    if(!value||!control)return
+    difficulty=value
     const color=data.get('color')
     human=color==='random'?(Math.random()<.5?'white':'black'):color==='black'?'black':'white'
-    local('bot')
+    practiceRating=null
+    local('bot',control)
+    if(session?.account&&control.seconds){
+      void api<ProfilePage>('profile').then(profile=>{
+        if(mode==='bot'&&!quickBot&&m?.control===control){
+          practiceRating=establishedRating(profile.ratings[pool(control.seconds,control.increment)])
+          const label=$('[data-practice-rating]')
+          if(label){label.textContent='('+ (practiceRating??'?') +')';label.setAttribute('title',practiceRating==null?'No established rating':pool(control.seconds,control.increment)+' rating')}
+        }
+      }).catch(()=>{})
+    }
     return
   }
   if(form.id==='report'){
@@ -1211,7 +1382,7 @@ const route=()=>{
   const gameId=new URLSearchParams(location.search).get('game')
   const page=location.hash.slice(1)
   if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
-  else if(page==='profile'||page==='friends'||page==='admin')void account(page).catch(e=>$('#account')?.replaceChildren(e.message))
+  else if(page==='profile'||page==='friends'||page==='admin'||page==='stats')void account(page).catch(e=>$('#account')?.replaceChildren(e.message))
   else if(location.hash==='#daily')void openDaily().catch(e=>$('#daily-status')?.replaceChildren(e.message))
   else if(mode!=='home'||!root.hasChildNodes()){
     const guide=location.hash==='#how-to-play'

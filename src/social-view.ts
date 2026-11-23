@@ -1,5 +1,5 @@
 import {countries,maxBio,maxDisplayName,type FriendList,type PlayerCard,type ProfileDetails} from './social.ts'
-import {deviation,type Rating} from './rating.ts'
+import {countedGames,establishedRating,type Rating} from './rating.ts'
 
 export const escapeHTML=(value:unknown)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
 const s=escapeHTML
@@ -33,13 +33,13 @@ export function profileView(profile:ProfilePage,linkEmail:boolean,admin=false){
   const card={handle:profile.handle,...profile.details}
   const ratings=['Bullet','Blitz','Rapid'].map(group=>{
     const rating=profile.ratings[group]
-    return '<div><dt>'+group+'</dt><dd>'+Math.round(rating?.rating??1500)+(rating&&deviation(rating,Date.now())<=110?'':'?')+'</dd></div>'
+    return '<div><dt>'+group+'</dt><dd>'+(establishedRating(rating)??(countedGames(rating)+'/10'))+'</dd></div>'
   }).join('')
   const history=profile.history.map(game=>'<li><a href="/?game='+encodeURIComponent(game.id)+'">'+s(game.pool)+' · '+s(game.result)+
     (game.delta===undefined?'':' · '+(game.delta>=0?'+':'')+game.delta)+'</a></li>').join('')
   return socialNav('profile',admin)+'<div class="profile-summary">'+avatar(card)+'<div><h1>'+s(card.displayName||profile.user.name)+'</h1>'+
     '<p class="profile-handle">@'+s(card.handle)+'</p>'+flag(card.country)+'</div><button class="primary" data-do="edit-profile">Edit profile</button></div>'+
-    (card.bio?'<p class="profile-bio">'+s(card.bio)+'</p>':'')+'<dl class="profile-ratings">'+ratings+'</dl>'+
+    (card.bio?'<p class="profile-bio">'+s(card.bio)+'</p>':'')+'<dl class="profile-ratings">'+ratings+'</dl><a href="/#stats" data-do="stats">Rating history</a>'+
     '<h2>Game history</h2>'+(history?'<ul class="profile-history">'+history+'</ul>':'<p>No completed games yet.</p>')+
     '<div class="tools profile-tools">'+(linkEmail?'<button data-do="link-email">Add email sign-in</button>':'')+'<button data-do="logout">Sign out</button></div>'
 }
