@@ -1,24 +1,39 @@
+import {puzzleAt,puzzleCount} from './puzzle-book.ts'
+import {dailyThinkTime,queueHandle,thinkTime} from './queue-opponent.ts'
 import { DurableObject } from 'cloudflare:workers'
-import { command, compatibleClock, dailyControl, dailyDays, expire, makeMatch, quickClock, remaining, type Command, type Control, type DailyGame, type DailyLobby, type Entry, type Match, type SearchClock } from './match.ts'
-import { botRating, dailyRatedBotGames, countedGames, establishedRating, placementGames, placementPrior, pool, ratingDelta, updateBotRating, updateRating, type Rating, type RatingImpact, type RatingEvent } from './rating.ts'
+import { command, compatibleClock, dailyControl, dailyDays, end, expire, makeMatch, quickClock, remaining, type Command, type Control, type DailyGame, type DailyLobby, type Entry, type Match, type SearchClock } from './match.ts'
+import { botRating, dailyRatedBotGames, countedGames, establishedRating, placementPrior, pool, ratingDelta, updateBotRating, updateRating, type Rating, type RatingImpact, type RatingEvent } from './rating.ts'
 import { CURRENT_RULES,type Side } from './rules.ts'
 import { chooseMove } from './bot.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
 import { digest, normalizeEmail, sendSignIn, type EmailRequest } from './email.ts'
-import { emptyDetails,maxProfileBody,parseProfileEdit,validHandle,type FriendAction,type FriendList,type FriendStatus,type PlayerCard,type ProfileDetails,type ProfileEdit } from './social.ts'
+import { emptyDetails,maxProfileBody,parseProfileEdit,validHandle,validPlayerNumber,type FriendAction,type FriendList,type FriendStatus,type PlayerCard,type ProfileDetails,type ProfileEdit } from './social.ts'
 import type { AdminUser, AdminUsers } from './admin.ts'
 
 type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
 interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string; ADMIN_EMAIL?:string }
 type Identity = { id:string; name:string; account:boolean }
+const qaHandles=new Set(['qa-a-0823ec19','qa-a-09ee2116','qa-b-0823ec19','qa-b-09ee2116'])
+const privateHandles=new Set(['test','natalie','lukas','evan'])
+const isQaAccount=(id:string,name:string)=>id.startsWith('passkey:')&&qaHandles.has(name.toLowerCase())
+const excludeFromPlayerCount=(id:string,name:string)=>isQaAccount(id,name)||(!id.startsWith('guest:')&&privateHandles.has(name.toLowerCase()))
 type Seats = Partial<Record<Side,Identity>>
-type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side; queueSearch?:string; ratingModel?:1 }
+type RoomInfo = { id:string; control:Control; seats:Seats; rated:boolean; created:number; open:boolean; ratings?:Partial<Record<Side,Rating>>; invited?:string; bot?:Side; queueSearch?:string; queueSearches?:Partial<Record<Side,string>>; ratingModel?:1 }
 type Ticket = { owner:Identity; id:string; expires:number; clock:SearchClock; created:number; searchId?:string; cancelled?:boolean; bot?:Control }
 type DailyTicket = { owner:Identity; id:string; days:number; created:number; requestId:string; matched?:boolean }
 type PublicGame = { id:string; white:string; black:string; control:Control; rated:boolean }
-type Profile = { user:Identity; ratings:Record<string,Rating>; history:{id:string; result:string; pool:string; delta?:number}[] }
+type Profile = { gameTotal?:{count:number;minimum:boolean}; user:Identity; ratings:Record<string,Rating>; history:{id:string; result:string; pool:string; delta?:number}[] }
 type FriendLink={handle:string;status:FriendStatus}
+function completedGames(profile:Profile|undefined){
+  const ratedGames=Object.values(profile?.ratings??{}).reduce((sum,rating)=>sum+countedGames(rating),0)
+  if(profile?.gameTotal)return {...profile.gameTotal,ratedGames}
+  const history=profile?.history??[]
+  const unrated=new Set(history.filter(game=>game.delta===undefined).map(game=>game.id)).size
+  const ratedInHistory=new Set(history.filter(game=>game.delta!==undefined).map(game=>game.id)).size
+  return {count:unrated+Math.max(ratedGames,ratedInHistory),minimum:history.length>=100||ratedGames>ratedInHistory,ratedGames}
+}
+const testAdminSignupCutoff=Date.parse('2026-11-24T16:22:00Z')
 type Final = { room:RoomInfo; reason:string; winner:Side|null; rules?:number }
 const json = (value:unknown,status=200) => Response.json(value,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}})
 const problem = (error:string,status=400) => json({error},status)
@@ -28,8 +43,11 @@ const setCookie = (req:Request,name:string,value:string,maxAge:number) => name+'
 const lobby = (env:Env) => env.LOBBY.getByName('global-v1')
 const room = (env:Env,id:string) => env.ROOMS.getByName(id)
 const oppositeSeat=(s:Side):Side=>s==='white'?'black':'white'
+const liveSearchLease=12_000
 const botWait=(rated:boolean)=>rated?20_000:8_000
 const botUsageKey=(player:string)=>'rated-bot/'+player
+const dailyBotWait=5*60_000
+const dailyFallbackPrefix='daily-fallback/'
 const dailyLifetime=14*86_400_000
 const dailyRoomKey=(player:string,id:string)=>'daily-room/'+player+'/'+id
 const friendKey=(player:string,other:string)=>'friend/'+player+'/'+other
@@ -48,9 +66,7 @@ function estimateRatingImpact(info:RoomInfo,seat:Side):RatingImpact|undefined{
   const player=info.ratings?.[seat],opponent=info.ratings?.[oppositeSeat(seat)]
   if(!info.rated||!player||!opponent||seat===info.bot)return
   const change=(score:number)=>ratingDelta(player,ratingAfter(info,player,opponent,score,info.created))
-  const placement=countedGames(player)
-  return {win:change(1),draw:change(0.5),loss:change(0),
-    ...(placement<placementGames?{placement,projected:[1,0.5,0].map(score=>Math.round(player.rating)+change(score)) as [number,number,number]}:{})}
+  return {win:change(1),draw:change(0.5),loss:change(0)}
 }
 function parseControl(raw:Partial<Control>): Control|null {
   const {seconds,increment}=raw
@@ -82,20 +98,21 @@ export class Room extends DurableObject<Env> {
   async initialize(info:RoomInfo) {
     await this.ctx.blockConcurrencyWhile(async()=>{
       if(await this.ctx.storage.get('room')) return
-      const match=makeMatch(info.control,!info.bot&&info.seats.black&&info.seats.white?Date.now():0)
+      const match=makeMatch(info.control,(!info.bot||info.control.days)&&info.seats.black&&info.seats.white?Date.now():0)
       await this.ctx.storage.put({room:info,match})
       await this.schedule(info,match)
     })
   }
-  async cancelUnstartedBot(player:string,searchId:string){
+  async cancelUnplayedQueue(player:Identity,searchId:string){
     return this.ctx.blockConcurrencyWhile(async()=>{
       const info=await this.ctx.storage.get<RoomInfo>('room')
       const match=await this.ctx.storage.get<Match>('match')
-      if(!info?.bot||!match||match.start||match.game.result||info.queueSearch!==searchId||
-        info.seats[oppositeSeat(info.bot)]?.id!==player)return
-      await this.ctx.storage.deleteAll()
-      await this.ctx.storage.deleteAlarm()
-      return {rated:info.rated,created:info.created}
+      if(!info||!match||match.game.result||info.control.days)return false
+      const seat=seatOf(info,player)
+      if(!seat||(info.queueSearches?.[seat]??(info.bot?info.queueSearch:undefined))!==searchId)return false
+      if((await this.ctx.storage.list<Entry>({prefix:'event/',limit:1})).size)return false
+      await this.save({...info,open:false},end(match,{winner:null,reason:'Game cancelled'},Date.now()))
+      return true
     })
   }
   async dailyGame(player:string):Promise<DailyGame|undefined>{
@@ -112,7 +129,7 @@ export class Room extends DurableObject<Env> {
     const info=await this.ctx.storage.get<RoomInfo>('room')
     const match=await this.ctx.storage.get<Match>('match')
     if(!info || !match) return
-    const {seats,invited,queueSearch,ratings,ratingModel,...visible}=info
+    const {seats,invited,queueSearch,queueSearches,ratings,ratingModel,...visible}=info
     const group=ratingPool(info.control)
     const nameplates:Partial<Record<Side,number|null>>={}
     const casualKey='nameplates/'+(seats.white?.id??'-')+'/'+(seats.black?.id??'-')
@@ -125,22 +142,66 @@ export class Room extends DurableObject<Env> {
       }
       if(!ratings&&group&&seats.white&&seats.black)await this.ctx.storage.put(casualKey,nameplates)
     }
+    const countryKey='countries/'+casualKey
+    let countries=await this.ctx.storage.get<Partial<Record<Side,string>>>(countryKey)
+    if(!countries){
+      countries={}
+      for(const side of ['white','black'] as const){
+        const owner=seats[side]
+        if(owner?.account)countries[side]=(await lobby(this.env).profilePage(owner)).details.country
+      }
+      await this.ctx.storage.put(countryKey,countries)
+    }
     const log=[...(await this.ctx.storage.list<Entry>({prefix:'event/'})).values()]
     const seat=player?seatOf(info,player):null
     const ratingImpact=seat&&match.start&&!match.game.result?estimateRatingImpact(info,seat):undefined
-    return {room:{...visible,nameplates:cached??nameplates,ratingPool:group,white:seats.white?.name,black:seats.black?.name,
+    return {room:{...visible,countries,nameplates:cached??nameplates,ratingPool:group,white:seats.white?.name,black:seats.black?.name,
       whiteAccount:seats.white?.account,blackAccount:seats.black?.account},seat,ratingImpact,
       match:{...match,game:{...match.game,seen:{}},log},now:Date.now()}
   }
-  private nextAlarm(info:RoomInfo,m:Match){
+  private clockDeadline(m:Match){
+    return m.start+(m.control.seconds?m.clock[m.game.side]:24*60*60_000)
+  }
+  private botDeadline(m:Match){
+    return m.start+(m.control.days?dailyThinkTime(m):thinkTime(m,m.clock[m.game.side],()=>((m.start%997)/997)))
+  }
+  private nextAlarm(info:RoomInfo,m:Match,disconnects:Partial<Record<Side,number>>={}){
     if(m.game.result)return Date.now()+250
     if(!m.start)return info.created+(info.control.days?dailyLifetime:30*60_000)
-    const timeout=m.start+(m.control.seconds?m.clock[m.game.side]:24*60*60_000)
-    return info.bot===m.game.side?Math.min(timeout,m.start+250):timeout
+    const bot=info.bot===m.game.side?this.botDeadline(m):Infinity
+    return Math.min(this.clockDeadline(m),bot,disconnects.white??Infinity,disconnects.black??Infinity)
+  }
+  private async deadlines(){
+    return await this.ctx.storage.get<Partial<Record<Side,number>>>('disconnect-deadlines')??{}
   }
   private async schedule(info:RoomInfo,m:Match){
-    await this.ctx.storage.setAlarm(this.nextAlarm(info,m))
+    await this.ctx.storage.setAlarm(this.nextAlarm(info,m,await this.deadlines()))
   }
+  private async expired(m:Match,now:number){
+    if(!m.start||m.game.result)return m
+    const disconnected=await this.deadlines()
+    const white=disconnected.white??Infinity,black=disconnected.black??Infinity
+    const deadline=Math.min(white,black)
+    if(deadline<=now&&deadline<this.clockDeadline(m))
+      return end(m,{winner:white===black?null:white<black?'black':'white',reason:'Disconnected'},deadline)
+    return expire(m,now)
+  }
+  async webSocketClose(ws:WebSocket){
+    const side=this.ctx.getTags(ws)[0] as Side|undefined
+    if(ws.readyState!==WebSocket.CLOSED)ws.close()
+    if(side!=='white'&&side!=='black')return
+    await this.ctx.blockConcurrencyWhile(async()=>{
+      if(this.ctx.getWebSockets(side).some(other=>other!==ws&&other.readyState===WebSocket.OPEN))return
+      const info=await this.ctx.storage.get<RoomInfo>('room')
+      const match=await this.ctx.storage.get<Match>('match')
+      if(!info||!match?.start||match.game.result||info.control.days)return
+      const deadlines=await this.deadlines()
+      deadlines[side]??=Date.now()+60_000
+      await this.ctx.storage.put('disconnect-deadlines',deadlines)
+      await this.schedule(info,match)
+    })
+  }
+  async webSocketError(ws:WebSocket){await this.webSocketClose(ws)}
   private async save(info:RoomInfo,match:Match,receipt?:{seat:Side;ids:string[]}) {
     const newEvent=match.log.at(-1)
     const stored={...match,log:[]}
@@ -149,7 +210,7 @@ export class Room extends DurableObject<Env> {
       if(receipt) await txn.put('commands/'+receipt.seat,receipt.ids)
       if(newEvent) await txn.put('event/'+String(match.version).padStart(8,'0'),newEvent)
       if(match.game.result) await txn.put<Final>('pending',{room:info,...match.game.result,rules:match.game.rulesVersion})
-      await txn.setAlarm(this.nextAlarm(info,match))
+      await txn.setAlarm(this.nextAlarm(info,match,await txn.get<Partial<Record<Side,number>>>('disconnect-deadlines')))
     })
     const update=JSON.stringify({version:match.version})
     for(const ws of this.ctx.getWebSockets()) {
@@ -164,12 +225,21 @@ export class Room extends DurableObject<Env> {
     return this.ctx.blockConcurrencyWhile(async()=>{
       const info=await this.ctx.storage.get<RoomInfo>('room')
       let match=await this.ctx.storage.get<Match>('match')
-      if(!info || !match) return problem('Room not found',404)
+      if(!info||!match)return action==='resume-status'||action==='cancel-unplayed'?json({resumable:false}):problem('Room not found',404)
+      const seat=seatOf(info,player)
+      if(action==='resume-status'||action==='cancel-unplayed'){
+        if(!seat||info.control.days)return json({resumable:false})
+        const first=[...(await this.ctx.storage.list<Entry>({prefix:'event/',limit:1})).values()][0]
+        if(first?.event)return json({resumable:true})
+        if(action==='cancel-unplayed'&&!match.game.result){
+          await this.save({...info,open:false},end(match,{winner:null,reason:'Game cancelled'},Date.now()))
+        }
+        return json({resumable:false})
+      }
       if(info.control.days&&!match.start&&!match.game.result&&info.created+dailyLifetime<=Date.now())
         return problem('This Daily invitation expired',410)
-      const timed=expire(match,Date.now())
+      const timed=await this.expired(match,Date.now())
       if(timed!==match){ await this.save(info,timed); match=timed }
-      const seat=seatOf(info,player)
       if(action==='snapshot'&&info.bot&&seat&&!match.start&&!match.game.result){
         match={...match,start:Date.now(),version:match.version+1}
         await this.save(info,match)
@@ -177,7 +247,16 @@ export class Room extends DurableObject<Env> {
       if(action==='ws' && req.headers.get('Upgrade')?.toLowerCase()==='websocket'){
         if(this.ctx.getWebSockets().length>=100) return problem('Spectator limit reached',503)
         const pair=new WebSocketPair()
-        this.ctx.acceptWebSocket(pair[1])
+        const liveSeat=seat&&seat!==info.bot&&!info.control.days?seat:null
+        this.ctx.acceptWebSocket(pair[1],liveSeat?[liveSeat]:[])
+        if(liveSeat&&!match.game.result){
+          const deadlines=await this.deadlines()
+          if(deadlines[liveSeat]){
+            delete deadlines[liveSeat]
+            await this.ctx.storage.put('disconnect-deadlines',deadlines)
+            await this.schedule(info,match)
+          }
+        }
         pair[1].send(JSON.stringify({version:match.version}))
         return new Response(null,{status:101,webSocket:pair[0]})
       }
@@ -245,16 +324,16 @@ export class Room extends DurableObject<Env> {
         return
       }
       if(!match.game.result){
-        const timed=expire(match,Date.now())
+        const timed=await this.expired(match,Date.now())
         if(timed!==match) await this.save(info,timed)
-        else if(info.bot===match.game.side){
+        else if(info.bot===match.game.side&&Date.now()>=this.botDeadline(match)){
           const time=remaining(match,info.bot,Date.now())
           const action=chooseMove(match.game,time<500?'rookie':time<2500?'tactical':'ranked')
           const moved=action&&command(match,info.bot,action,Date.now())
           if(!moved)throw Error('Ranked bot could not play in an active position')
           await this.save(info,moved)
         }
-        else if(!match.control.seconds) await this.save(info,{...match,game:{...match.game,result:{winner:null,reason:'Inactive room expired'}},start:0,version:match.version+1})
+        else if(!match.control.seconds&&Date.now()>=this.clockDeadline(match)) await this.save(info,{...match,game:{...match.game,result:{winner:null,reason:'Inactive room expired'}},start:0,version:match.version+1})
         else await this.schedule(info,match)
       }
       final=await this.ctx.storage.get<Final>('pending')
@@ -271,7 +350,8 @@ export class Lobby extends DurableObject<Env> {
     const identity=req.headers.get('x-remorse-presence')
     if(!identity||req.headers.get('upgrade')?.toLowerCase()!=='websocket')return problem('WebSocket required',426)
     const pair=new WebSocketPair()
-    this.ctx.acceptWebSocket(pair[1],[identity])
+    const tags=req.headers.get('x-remorse-exclude-count')==='1'?[identity,'exclude-count']:[identity]
+    this.ctx.acceptWebSocket(pair[1],tags)
     pair[1].send(JSON.stringify({online:this.onlinePlayers()}))
     await this.schedulePresence()
     return new Response(null,{status:101,webSocket:pair[0]})
@@ -280,7 +360,7 @@ export class Lobby extends DurableObject<Env> {
     return this.ctx.getWebSockets().filter(socket=>socket.readyState===WebSocket.OPEN)
   }
   private onlinePlayers(sockets=this.presenceSockets()){
-    return new Set(sockets.map(socket=>this.ctx.getTags(socket)[0])).size
+    return new Set(sockets.map(socket=>this.ctx.getTags(socket)).filter(tags=>!tags.includes('exclude-count')).map(tags=>tags[0])).size
   }
   private async schedulePresence(){
     if(await this.ctx.storage.getAlarm()===null)await this.ctx.storage.setAlarm(Date.now()+1000)
@@ -291,6 +371,21 @@ export class Lobby extends DurableObject<Env> {
     for(const socket of sockets){
       try{socket.send(update)}catch{socket.close(1011,'Reconnect')}
     }
+    const pending=await this.ctx.storage.list<{player:string;requestId:string;due:number}>({prefix:dailyFallbackPrefix,limit:30})
+    for(const [key,entry] of pending){
+      if(entry.due>Date.now()){await this.scheduleDailyFallback(entry.due);break}
+      const ticket=await this.ctx.storage.get<DailyTicket>('daily-search/'+entry.player)
+      if(ticket&&!ticket.matched&&ticket.requestId===entry.requestId&&ticket.created+dailyLifetime>Date.now())
+        await this.dailySearch(ticket.owner,ticket.days,ticket.requestId,false,true)
+      await this.ctx.storage.delete(key)
+    }
+    const next=[...(await this.ctx.storage.list<{due:number}>({prefix:dailyFallbackPrefix,limit:1})).values()][0]
+    if(next)await this.scheduleDailyFallback(next.due)
+  }
+  private async scheduleDailyFallback(due:number){
+    const current=await this.ctx.storage.getAlarm()
+    if(current===null||current<=Date.now()||due<current)
+      await this.ctx.storage.setAlarm(Math.max(Date.now()+100,due))
   }
   webSocketMessage(ws:WebSocket){ws.close(1008,'Receive-only connection')}
   async webSocketClose(ws:WebSocket){
@@ -302,7 +397,11 @@ export class Lobby extends DurableObject<Env> {
     await this.ctx.storage.put(dailyRoomKey(player,id),id)
   }
   async daily(player:string):Promise<DailyLobby>{
-    const request=await this.ctx.storage.get<DailyTicket>('daily-search/'+player)
+    let request=await this.ctx.storage.get<DailyTicket>('daily-search/'+player)
+    if(request&&!request.matched&&request.created+dailyBotWait<=Date.now()&&request.created+dailyLifetime>Date.now()){
+      await this.dailySearch(request.owner,request.days,request.requestId,false,true)
+      request=await this.ctx.storage.get<DailyTicket>('daily-search/'+player)
+    }
     const keys=[...(await this.ctx.storage.list<string>({prefix:'daily-room/'+player+'/'})).values()]
     const games:DailyGame[]=[]
     const expired:string[]=[]
@@ -321,7 +420,7 @@ export class Lobby extends DurableObject<Env> {
     await this.registerDaily(player.id,id)
     return {id}
   }
-  async dailySearch(player:Identity,days:number,requestId:string,cancel=false){
+  async dailySearch(player:Identity,days:number,requestId:string,cancel=false,fallback=false){
     return this.ctx.blockConcurrencyWhile(async()=>{
       const prefix='daily-search/'
       const key=prefix+player.id
@@ -329,6 +428,7 @@ export class Lobby extends DurableObject<Env> {
       const now=Date.now()
       const mine=await this.ctx.storage.get<DailyTicket>(key)
       if(mine?.matched&&mine.requestId===requestId)return {id:mine.id}
+      if(fallback&&(!mine||mine.requestId!==requestId||mine.created+dailyLifetime<=now))return {}
       const queue=await this.ctx.storage.list<DailyTicket>({prefix})
       const expired:string[]=[]
       const candidates:[string,DailyTicket][]=[]
@@ -353,7 +453,18 @@ export class Lobby extends DurableObject<Env> {
         return {id}
       }
       const same=mine&&!mine.matched&&mine.days===days&&mine.created+dailyLifetime>now
-      await this.ctx.storage.put<DailyTicket>(key,{owner:player,id:same?mine.id:token(),days,created:same?mine.created:now,requestId})
+      const ticket:DailyTicket={owner:player,id:same?mine.id:token(),days,created:same?mine.created:now,requestId}
+      const due=ticket.created+dailyBotWait
+      if(due<=now){
+        const side:Side=Math.random()<.5?'white':'black'
+        const bot=oppositeSeat(side)
+        const seats:Seats={[side]:player,[bot]:{id:'daily-bot',name:queueHandle(),account:false}}
+        await room(this.env,ticket.id).initialize({id:ticket.id,control:dailyControl(days),seats,rated:false,created:now,open:false,bot})
+        await this.ctx.storage.put({[key]:{...ticket,matched:true},[dailyRoomKey(player.id,ticket.id)]:ticket.id})
+        return {id:ticket.id}
+      }
+      await this.ctx.storage.put({[key]:ticket,[dailyFallbackPrefix+String(due)+'/'+player.id+'/'+requestId]:{player:player.id,requestId,due}})
+      await this.scheduleDailyFallback(due)
       return {queued:days}
     })
   }
@@ -361,6 +472,75 @@ export class Lobby extends DurableObject<Env> {
     const entry=await this.ctx.storage.get<{user:Identity;expires:number}>('session/'+id)
     if(!entry || entry.expires<=Date.now()) return
     return entry.user
+  }
+  private async assignPlayerNumber(txn:DurableObjectTransaction,id:string,handle?:string){
+    const key='player-number/'+id
+    const assigned=await txn.get<number>(key)
+    if(assigned!==undefined)return assigned
+    const counter='player-number-sequence'
+    let last=await txn.get<number>(counter)
+    if(last===undefined){
+      const accounts=new Map<string,{handle:string;created:number}>()
+      let startAfter:string|undefined
+      for(;;){
+        const handles=await txn.list<string>({prefix:'handle/',startAfter,limit:100})
+        if(!handles.size)break
+        const dates=await txn.get<number>([...new Set(handles.values())].map(createdKey))
+        for(const [handle,owner] of handles){
+          startAfter=handle
+          if(!accounts.has(owner)&&!isQaAccount(owner,handle.slice(7)))
+            accounts.set(owner,{handle,created:dates.get(createdKey(owner))??0})
+        }
+        if(handles.size<100)break
+      }
+      const ordered=[...accounts].sort(([,a],[,b])=>a.created-b.created||a.handle.localeCompare(b.handle))
+      for(let offset=0;offset<ordered.length;offset+=100){
+        await txn.put(Object.fromEntries(ordered.slice(offset,offset+100).map(([owner],index)=>['player-number/'+owner,offset+index+1])))
+      }
+      last=ordered.length
+      await txn.put(counter,last)
+      const existing=await txn.get<number>(key)
+      if(existing!==undefined)return existing
+    }
+    const number=last+1
+    await txn.put({[key]:number,[counter]:number})
+    if(handle)await txn.put('number-handle/'+number,handle.toLowerCase())
+    return number
+  }
+  private async prioritizeFoundingPlayers(){
+    const marker='player-number-founder-order'
+    if(await this.ctx.storage.get(marker))return
+    await this.ctx.storage.transaction(async txn=>{
+      if(await txn.get(marker))return
+      const handles=['lukas','test','natalie','evan'].map(name=>'handle/'+name)
+      const accounts=await txn.get<string>(handles)
+      const founders=handles.map(handle=>accounts.get(handle))
+      if(founders.some(id=>!id)||new Set(founders).size!==handles.length)return
+      const keys=founders.map(id=>'player-number/'+id)
+      const former=[]
+      for(const id of founders)former.push(await this.assignPlayerNumber(txn,id!))
+      const available=former.filter(number=>number>keys.length).sort((a,b)=>a-b)
+      const displaced:Array<[string,number]>=[]
+      let startAfter:string|undefined
+      while(displaced.length<available.length){
+        const batch=await txn.list<number>({prefix:'player-number/',startAfter,limit:100})
+        for(const [key,number] of batch){
+          startAfter=key
+          if(number<=keys.length&&!keys.includes(key))displaced.push([key,number])
+        }
+        if(batch.size<100)break
+      }
+      if(displaced.length!==available.length)throw Error('Could not reconcile the first player numbers')
+      displaced.sort((a,b)=>a[1]-b[1])
+      await txn.put(Object.fromEntries([...keys.map((key,i)=>[key,i+1]),...displaced.map(([key],i)=>[key,available[i]])]))
+      await txn.put(marker,true)
+    })
+  }
+  private async playerNumber(id:string,handle:string){
+    if(isQaAccount(id,handle))return undefined
+    await this.prioritizeFoundingPlayers()
+    return await this.ctx.storage.get<number>('player-number/'+id) ??
+      await this.ctx.storage.transaction(txn=>this.assignPlayerNumber(txn,id,handle))
   }
   async signIn(id:string,user:Identity){
     await this.ctx.storage.put('session/'+id,{user,expires:Date.now()+7*86400_000})
@@ -383,6 +563,7 @@ export class Lobby extends DurableObject<Env> {
       const handle='handle/'+record.user.name.toLowerCase()
       const key='passkey/'+record.credential.id
       if(await txn.get(handle)||await txn.get(key))return false
+      if(!isQaAccount(record.user.id,record.user.name))await this.assignPlayerNumber(txn,record.user.id,record.user.name)
       await txn.put(handle,record.user.id)
       await txn.put(key,record)
       await txn.put(createdKey(record.user.id),Date.now())
@@ -451,6 +632,7 @@ export class Lobby extends DurableObject<Env> {
         const handleKey='handle/'+handle.toLowerCase()
         if(await txn.get(handleKey))return 'taken'
         user={id:'email:'+token(),name:handle,account:true}
+        await this.assignPlayerNumber(txn,user.id,handle)
         await txn.put(handleKey,user.id)
         await txn.put(createdKey(user.id),Date.now())
       }
@@ -464,35 +646,65 @@ export class Lobby extends DurableObject<Env> {
   async hasEmail(user:string){
     return Boolean(await this.ctx.storage.get(emailOwnerKey(user)))
   }
-  async isAdmin(user:string){
+  private async adminAccountIds(){
     const email=normalizeEmail(this.env.ADMIN_EMAIL)
-    if(!email)return false
-    const owner=await this.ctx.storage.get<Identity>('email-account/'+await digest(email))
-    return owner?.id===user
+    const [owner,test,swagwayboy]=await Promise.all([
+      email?this.ctx.storage.get<Identity>('email-account/'+await digest(email)):undefined,
+      this.ctx.storage.get<string>('handle/test'),
+      this.ctx.storage.get<string>('handle/swagwayboy'),
+    ])
+    const [testCreated,swagwayNumber]=await Promise.all([
+      test?this.ctx.storage.get<number>(createdKey(test)):undefined,
+      swagwayboy?this.ctx.storage.get<number>('player-number/'+swagwayboy):undefined,
+    ])
+    // Require the verified account's player number as well as the handle.
+    return new Set([
+      owner?.id,
+      testCreated!==undefined&&testCreated<=testAdminSignupCutoff?test:undefined,
+      swagwayNumber===23?swagwayboy:undefined,
+    ])
+  }
+  async isAdmin(user:string){
+    return (await this.adminAccountIds()).has(user)
   }
   async adminUsers(viewer:string,prefix:string,after:string):Promise<AdminUsers|null>{
-    if(!await this.isAdmin(viewer))return null
-    const pageSize=40
+    const admins=await this.adminAccountIds()
+    if(!admins.has(viewer))return null
+    await this.prioritizeFoundingPlayers()
+    const pageSize=28
     const indexed=await this.ctx.storage.list<string>({
-      prefix:'handle/'+prefix,startAfter:after?'handle/'+after:undefined,limit:pageSize+1,
+      prefix:'handle/'+prefix,startAfter:after?'handle/'+after:undefined,limit:pageSize+qaHandles.size+privateHandles.size+1,
     })
-    if(!indexed.size)return {users:[]}
-    const entries=[...indexed].slice(0,pageSize)
-    const metadata=await this.ctx.storage.get<number|boolean|ProfileDetails>(
-      entries.flatMap(([,id])=>[createdKey(id),emailOwnerKey(id),detailsKey(id)]),
+    const visible=[...indexed].filter(([key,id])=>!excludeFromPlayerCount(id,key.slice('handle/'.length)))
+    const publicEntries=visible.slice(0,pageSize)
+    const internalEntries=after?[]:[...await this.ctx.storage.get<string>([...privateHandles].map(handle=>'handle/'+handle))]
+    const entries=[...publicEntries,...internalEntries]
+    if(!entries.length)return {users:[],internal:[]}
+    const metadata=await this.ctx.storage.get<number|boolean|ProfileDetails|Profile>(
+      entries.flatMap(([,id])=>[createdKey(id),emailOwnerKey(id),detailsKey(id),'profile/'+id]),
     )
+    const numbers=await this.ctx.storage.get<number>(entries.map(([,id])=>'player-number/'+id))
     const users=entries.map(([key,id]):AdminUser=>{
       const profile=metadata.get(detailsKey(id)) as ProfileDetails|undefined
       const created=metadata.get(createdKey(id))
+      const saved=metadata.get('profile/'+id) as Profile|undefined
+      const games=completedGames(saved?this.normalizeProfile(saved):undefined)
       return {
         handle:key.slice('handle/'.length),
+        playerNumber:numbers.get('player-number/'+id),
+        admin:admins.has(id),
         displayName:profile?.displayName||undefined,
+        country:profile?.country||undefined,
+        gamesPlayed:games.count,
+        totalIsMinimum:games.minimum,
+        ratedGames:games.ratedGames,
         registeredWith:id.startsWith('passkey:')?'passkey':id.startsWith('email:')?'email':'github',
         emailLinked:metadata.get(emailOwnerKey(id))===true,
         createdAt:typeof created==='number'?created:undefined,
       }
     })
-    return {users,next:indexed.size>pageSize?users.at(-1)?.handle:undefined}
+    return {users:users.slice(0,publicEntries.length),internal:users.slice(publicEntries.length).sort((a,b)=>(a.playerNumber??Infinity)-(b.playerNumber??Infinity)),
+      next:visible.length>pageSize?users[pageSize-1].handle:undefined}
   }
   async logout(id:string){ await this.ctx.storage.delete('session/'+id) }
   private normalizeProfile(profile:Profile):Profile{
@@ -515,6 +727,7 @@ export class Lobby extends DurableObject<Env> {
       if(assigned)return assigned
       let handle=validHandle(preferred)?preferred:'player-'+token().slice(0,8)
       while(await txn.get('handle/'+handle))handle='player-'+token().slice(0,12)
+      await this.assignPlayerNumber(txn,user.id,handle)
       await txn.put('handle/'+handle,user.id)
       await txn.put(key,handle)
       return handle
@@ -524,7 +737,7 @@ export class Lobby extends DurableObject<Env> {
     const [profile,handle,details]=await Promise.all([
       this.profile(user),this.socialHandle(user),this.ctx.storage.get<ProfileDetails>(detailsKey(user.id)),
     ])
-    return {...profile,handle,details:details??emptyDetails}
+    return {...profile,handle,playerNumber:await this.playerNumber(user.id,handle),details:details??emptyDetails}
   }
   async updateProfile(user:Identity,edit:ProfileEdit){
     await this.ctx.storage.transaction(async txn=>{
@@ -540,11 +753,38 @@ export class Lobby extends DurableObject<Env> {
   async playerCard(viewer:string,handle:string):Promise<PlayerCard|undefined>{
     const id=await this.ctx.storage.get<string>('handle/'+handle)
     if(!id||id===viewer||(await this.ctx.storage.get(blockedKeys(viewer,id))).size)return
-    const [details,link]=await Promise.all([
-      this.ctx.storage.get<ProfileDetails>(detailsKey(id)),this.ctx.storage.get<FriendLink>(friendKey(viewer,id)),
+    const [details,link,playerNumber]=await Promise.all([
+      this.ctx.storage.get<ProfileDetails>(detailsKey(id)),this.ctx.storage.get<FriendLink>(friendKey(viewer,id)),this.playerNumber(id,handle),
     ])
-    return {...(details??emptyDetails),handle,status:link?.status,
+    return {...(details??emptyDetails),handle,playerNumber,status:link?.status,
       online:link?.status==='friend'?this.ctx.getWebSockets(id).some(s=>s.readyState===WebSocket.OPEN):undefined}
+  }
+  async findPlayerByNumber(viewer:string,number:number){
+    await this.prioritizeFoundingPlayers()
+    const ready='player-number-lookup-ready'
+    if(!await this.ctx.storage.get(ready)){
+      await this.ctx.storage.transaction(async txn=>{
+        if(await txn.get(ready))return
+        let startAfter:string|undefined
+        for(;;){
+          const handles=await txn.list<string>({prefix:'handle/',startAfter,limit:100})
+          if(!handles.size)break
+          const numbers=await txn.get<number>([...new Set(handles.values())].map(id=>'player-number/'+id))
+          const index:Record<string,string>={}
+          for(const [key,id] of handles){
+            startAfter=key
+            const assigned=numbers.get('player-number/'+id)
+            if(assigned!==undefined)index['number-handle/'+assigned]=key.slice('handle/'.length)
+          }
+          if(Object.keys(index).length)await txn.put(index)
+          if(handles.size<100)break
+        }
+        await txn.put(ready,true)
+      })
+    }
+    const handle=await this.ctx.storage.get<string>('number-handle/'+number)
+    const card=handle&&await this.playerCard(viewer,handle)
+    return card&&card.playerNumber===number?[card]:[]
   }
   async findPlayers(viewer:string,prefix:string){
     const matches=await this.ctx.storage.list<string>({prefix:'handle/'+prefix,limit:12})
@@ -605,6 +845,21 @@ export class Lobby extends DurableObject<Env> {
       await txn.delete([friendKey(who,other),friendKey(other,who)])
     })
   }
+  async puzzleScore(user:string,attempt?:{id:number;token:string;moves:string[]}){
+    return this.ctx.storage.transaction(async txn=>{
+      const key='puzzle-score/'+user
+      const state=await txn.get<{rating:number;done:Record<string,boolean>}>(key)??{rating:800,done:{}}
+      if(!attempt||attempt.token in state.done)return state
+      const puzzle=puzzleAt(attempt.id)
+      const won=puzzle.line.length===attempt.moves.length&&puzzle.line.every((m,i)=>m===attempt.moves[i])
+      if(!won&&attempt.moves.every((m,i)=>m===puzzle.line[i]))return state
+      const expected=1/(1+10**((puzzle.strength-state.rating)/400))
+      state.rating=Math.max(100,Math.round(state.rating+48*(Number(won)-expected)))
+      state.done[attempt.token]=won
+      await txn.put(key,state)
+      return state
+    })
+  }
   async settings(user:string,input?:Record<string,unknown>) {
     if(input) await this.ctx.storage.put('settings/'+user,input)
     return await this.ctx.storage.get('settings/'+user) ?? {}
@@ -613,7 +868,7 @@ export class Lobby extends DurableObject<Env> {
     return [...(await this.ctx.storage.list<PublicGame>({prefix:'watch/',limit:40})).values()]
   }
   async distribution(group:string){
-    const cacheKey='distribution/'+group
+    const cacheKey='distribution/v3/'+group
     const cached=await this.ctx.storage.get<{time:number;counts:number[];first:number}>(cacheKey)
     const now=Date.now()
     if(cached&&now-cached.time<3_600_000)return cached
@@ -623,6 +878,7 @@ export class Lobby extends DurableObject<Env> {
       const batch=await this.ctx.storage.list<Profile>({prefix:'profile/',startAfter,limit:200})
       for(const [key,raw] of batch){
         startAfter=key
+        if(excludeFromPlayerCount(raw.user.id,raw.user.name))continue
         const rating=this.normalizeProfile(raw).ratings[group]
         if(!rating||establishedRating(rating)===null||now-rating.updated>90*86_400_000)continue
         const bucket=Math.floor(Math.round(rating.rating)/100)*100
@@ -637,7 +893,7 @@ export class Lobby extends DurableObject<Env> {
     return result
   }
   async leaders(){
-    const records=[...(await this.ctx.storage.list<Profile>({prefix:'profile/',limit:1000})).values()].map(p=>this.normalizeProfile(p))
+    const records=[...(await this.ctx.storage.list<Profile>({prefix:'profile/',limit:1000+qaHandles.size})).values()].filter(p=>!isQaAccount(p.user.id,p.user.name)).slice(0,1000).map(p=>this.normalizeProfile(p))
     return Object.fromEntries(['Bullet','Blitz','Rapid'].map(group=>[group,records.filter(p=>establishedRating(p.ratings[group])!==null).sort((a,b)=>b.ratings[group].rating-a.ratings[group].rating).slice(0,20).map(p=>({name:p.user.name,rating:Math.round(p.ratings[group].rating)}))]))
   }
   async search(player:Identity,clock:SearchClock,rated:boolean,cancel=false,searchId?:string,acceptBot=false){
@@ -646,20 +902,9 @@ export class Lobby extends DurableObject<Env> {
       const active=await this.ctx.storage.get<string>(activeKey)
       if(active){
         const match=room(this.env,active)
-        const dropped=cancel&&searchId?await match.cancelUnstartedBot(player.id,searchId):undefined
-        if(dropped){
-          const key=botUsageKey(player.id)
-          await this.ctx.storage.transaction(async txn=>{
-            await txn.delete(activeKey)
-            if(!dropped.rated)return
-            const usage=await txn.get<{day:number;count:number}>(key)
-            if(usage?.day===Math.floor(dropped.created/86_400_000)&&usage.count>0)
-              await txn.put(key,{...usage,count:usage.count-1})
-          })
-        }else{
-          if(await match.isOpenFor(player.id))return {id:active}
-          await this.ctx.storage.delete(activeKey)
-        }
+        const dropped=cancel&&searchId?await match.cancelUnplayedQueue(player,searchId):false
+        if(!dropped&&await match.isOpenFor(player.id))return {id:active}
+        await this.ctx.storage.delete(activeKey)
       }
       const now=Date.now()
       const directory='search/'+(rated?'rated/':'casual/')
@@ -674,7 +919,7 @@ export class Lobby extends DurableObject<Env> {
       }
       const same=mine&&mine.expires>now&&mine.searchId===searchId&&compatibleClock(clock,mine.clock)!==null&&
         (clock==='any')===(mine.clock==='any')
-      if(same && mine.cancelled)return {cancelled:true}
+      if(mine?.cancelled&&mine.searchId===searchId&&mine.expires>now)return {cancelled:true}
       if(same && mine.bot)return {bot:mine.bot}
       await this.ctx.storage.delete('search/'+(rated?'casual/':'rated/')+player.id)
       const entries=await this.ctx.storage.list<Ticket>({prefix:directory})
@@ -709,7 +954,7 @@ export class Lobby extends DurableObject<Env> {
           const usage=await this.ctx.storage.get<{day:number;count:number}>(usageKey)
           const count=usage?.day===day?usage.count:0
           const counts=control.seconds>=60&&count<dailyRatedBotGames
-          const seats:Seats={[side]:player,[bot]:{id:'ranked-bot',name:'Opponent',account:false}}
+          const seats:Seats={[side]:player,[bot]:{id:'ranked-bot',name:queueHandle(),account:false}}
           const rating=ratedSnapshot((await this.profile(player)).ratings[pool(control.seconds,control.increment)])
           await room(this.env,ticketId).initialize({id:ticketId,seats,rated:counts,ratings:{[side]:rating,[bot]:botRating},control,created:now,open:false,bot,queueSearch:searchId,ratingModel:1})
           await this.ctx.storage.transaction(async txn=>{
@@ -720,7 +965,7 @@ export class Lobby extends DurableObject<Env> {
           return {id:ticketId}
         }
         const bot=!rated&&botIn===0?control:undefined
-        await this.ctx.storage.put<Ticket>(myKey,{owner:player,id:ticketId,clock,created,expires:now+90_000,searchId,bot})
+        await this.ctx.storage.put<Ticket>(myKey,{owner:player,id:ticketId,clock,created,expires:now+liveSearchLease,searchId,bot})
         return bot?{bot}:{queued:true,rated,flexible:clock==='any',botIn}
       }
       const {ticket:opponent,control}=pair
@@ -732,7 +977,9 @@ export class Lobby extends DurableObject<Env> {
         white:ratedSnapshot((await this.profile(seats.white)).ratings[group]),
         black:ratedSnapshot((await this.profile(seats.black)).ratings[group]),
       }:undefined
-      await room(this.env,id).initialize({id,seats,rated,ratings,control,created:now,open:false,ratingModel:1})
+      const queueSearches:Partial<Record<Side,string>>=seats.white.id===player.id
+        ?{white:searchId,black:opponent.searchId}:{white:opponent.searchId,black:searchId}
+      await room(this.env,id).initialize({id,seats,rated,ratings,control,created:now,open:false,ratingModel:1,queueSearches})
       await this.ctx.storage.transaction(async txn=>{
         await txn.delete([myKey,opponentKey])
         await txn.put<PublicGame>('watch/'+id,{id,white:seats.white.name,black:seats.black.name,control,rated})
@@ -747,6 +994,20 @@ export class Lobby extends DurableObject<Env> {
       if(await txn.get('result/'+final.room.id)) return
       await txn.delete('watch/'+final.room.id)
       const players=[final.room.seats.white,final.room.seats.black]
+      if(final.reason==='Game cancelled'){
+        for(const player of players){
+          if(!player||player.id==='ranked-bot')continue
+          if(await txn.get('active/'+player.id)===final.room.id)await txn.delete('active/'+player.id)
+          if(final.room.bot&&final.room.rated){
+            const key=botUsageKey(player.id)
+            const usage=await txn.get<{day:number;count:number}>(key)
+            if(usage?.day===Math.floor(final.room.created/86_400_000)&&usage.count>0)
+              await txn.put(key,{...usage,count:usage.count-1})
+          }
+        }
+        await txn.put('result/'+final.room.id,{...final,applied:Date.now()})
+        return
+      }
       const accounts = await Promise.all(players.map(async player=>player?.account?this.profileIn(txn,player):null))
       const group=final.room.control.days?'Daily':pool(final.room.control.seconds,final.room.control.increment)
       const now=Date.now()
@@ -758,6 +1019,8 @@ export class Lobby extends DurableObject<Env> {
         if(await txn.get('active/'+player.id)===final.room.id) await txn.delete('active/'+player.id)
         if(final.room.control.days)await txn.delete(dailyRoomKey(player.id,final.room.id))
         if(!profile) continue
+        const total=completedGames(profile)
+        profile.gameTotal={count:total.count+1,minimum:total.minimum}
         const score=final.winner===null?0.5:final.winner===(i===0?'white':'black')?1:0
         const old=starts[i]
         const color=i===0?'white':'black'
@@ -985,6 +1248,17 @@ export default {
       return page?json(page):problem('Administrator access is required',403)
     }
     if(!profile && !guestValid) return problem('Start a guest session first',401)
+    if(endpoint==='puzzle-score'&&player.account){
+      if(req.method==='GET')return json(await lobby(env).puzzleScore(player.id))
+      if(req.method==='POST'){
+        const body=await req.json<{id:number;token:string;moves:string[]}>()
+        const day=Math.floor(Date.now()/86400000)
+        if(!body||!Number.isInteger(body.id)||body.id<0||body.id>=puzzleCount||!Array.isArray(body.moves)||
+          !body.moves.length||body.moves.length>2||!body.moves.every(m=>typeof m==='string'&&/^[a-h][1-8][a-h][1-8]$/.test(m))||
+          !(body.token==='practice/'+body.id||[day,day-1].some(d=>body.token==='daily/'+d&&body.id===(d*17)%puzzleCount)))return problem('Invalid puzzle attempt',400)
+        return json(await lobby(env).puzzleScore(player.id,body))
+      }
+    }
     if(endpoint==='settings' && (req.method==='GET'||req.method==='POST')){
       if(!player.account)return problem('Sign in to sync settings',401)
       if(req.method==='GET')return json(await lobby(env).settings(player.id))
@@ -1016,6 +1290,10 @@ export default {
     if(req.method==='GET'&&(endpoint==='players'||endpoint.startsWith('player/')||endpoint.startsWith('avatar/'))){
       if(!player.account)return problem('Sign in to view player profiles',401)
       const handle=endpoint==='players'?url.searchParams.get('q')?.trim():endpoint.split('/')[1]
+      if(endpoint==='players'&&handle?.startsWith('#')){
+        if(!validPlayerNumber(handle))return problem('Enter a player ID like #12.')
+        return json(await lobby(env).findPlayerByNumber(player.id,Number(handle.slice(1))))
+      }
       if(!validHandle(handle))return problem('Enter at least three characters of a player’s username')
       const normalized=handle.toLowerCase()
       if(endpoint==='players')return json(await lobby(env).findPlayers(player.id,normalized))
@@ -1052,6 +1330,7 @@ export default {
       if(req.headers.get('upgrade')?.toLowerCase()!=='websocket')return problem('WebSocket required',426)
       const headers=new Headers(req.headers)
       headers.set('x-remorse-presence',player.id)
+      headers.set('x-remorse-exclude-count',excludeFromPlayerCount(player.id,player.name)?'1':'0')
       return lobby(env).fetch(new Request(req,{headers}))
     }
     if(endpoint==='daily'){
@@ -1083,10 +1362,10 @@ export default {
       await room(env,id).initialize({id,control,seats:{white:player},rated:false,created:Date.now(),open:true})
       return json({id},201)
     }
-    const parts=/^room\/([a-f0-9]{32})(?:\/(join|command|rematch|report|block|ws|player))?$/.exec(endpoint)
+    const parts=/^room\/([a-f0-9]{32})(?:\/(join|command|rematch|report|block|ws|player|resume-status|cancel-unplayed))?$/.exec(endpoint)
     if(parts){
       const action=parts[2] ?? 'snapshot'
-      if(!['GET','POST'].includes(req.method) || (req.method==='POST')!==['join','command','rematch','report','block'].includes(action)) return problem('Method not allowed',405)
+      if(!['GET','POST'].includes(req.method) || (req.method==='POST')!==['join','command','rematch','report','block','cancel-unplayed'].includes(action)) return problem('Method not allowed',405)
       if(action==='player'){
         if(!player.account)return problem('Sign in to view player profiles',401)
         const other=await room(env,parts[1]).opponentAccount(player.id)

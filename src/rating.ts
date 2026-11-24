@@ -1,9 +1,8 @@
 export type Rating = { rating:number; rd:number; volatility:number; games:number; updated:number; botGames?:number }
 export type RatingImpact = { win:number; draw:number; loss:number; placement?:number; projected?: [number,number,number] }
 export const defaultRating = (): Rating => ({rating:1500,rd:350,volatility:0.06,games:0,updated:0})
-export const placementGames=10
 export const countedGames=(r?:Rating)=>r ? r.games+(r.botGames??0) : 0
-export const establishedRating=(r?:Rating)=>r&&countedGames(r)>=placementGames?Math.round(r.rating):null
+export const establishedRating=(r?:Rating)=>r&&countedGames(r)>0?Math.round(r.rating):null
 const bounded=(rating:number)=>Math.max(100,Math.min(4000,rating))
 export const placementPrior=():Rating=>({...defaultRating(),rating:600})
 export type RatingEvent={id:string; time:number; sequence:number; pool:string; color:'white'|'black'; bot:boolean; score:number; opponent:number; opponentRD:number; before:Rating; after:Rating; rules?:number; model:1}
@@ -49,10 +48,10 @@ export function pool(seconds:number, increment:number) {
   return estimated<180?'Bullet':estimated<600?'Blitz':'Rapid'
 }
 export function updateBotRating(p:Rating,opponent:Rating,score:number,now:number):Rating{
-  const remaining=Math.max(0,placementGames-countedGames(p))
-  const effective=remaining?p:{...p,rd:Math.min(deviation(p,now),110),updated:now}
+  const experience=countedGames(p)
+  const effective=experience<10?p:{...p,rd:Math.min(deviation(p,now),110),updated:now}
   const candidate=updateRating(effective,opponent,score,now)
-  const limit=remaining?130:settledBotRatingLimit
+  const limit=Math.max(settledBotRatingLimit,130/(1+experience*.5)**1.5)
   const change=Math.max(-limit,Math.min(limit,candidate.rating-p.rating))
   return {...candidate,rating:bounded(p.rating+change),games:p.games,botGames:(p.botGames??0)+1}
 }

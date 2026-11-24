@@ -6,11 +6,12 @@ const s=escapeHTML
 const countryNames=typeof Intl.DisplayNames==='function'?new Intl.DisplayNames(['en'],{type:'region'}):null
 const countryName=(code:string)=>countryNames?.of(code)??code
 const display=(card:PlayerCard)=>card.displayName||card.handle
+const numberLine=(number?:number)=>number===undefined?'':'<p class="profile-number" aria-label="Player number '+number+'">#'+number+'</p>'
 
-export type ProfilePage={handle:string;user:{name:string};details:ProfileDetails;
+export type ProfilePage={handle:string;playerNumber?:number;user:{name:string};details:ProfileDetails;
   ratings:Record<string,Rating>;history:{id:string;pool:string;result:string;delta?:number}[]}
 
-function flag(code:string){
+export function flag(code:string){
   const index=countries.indexOf(code)
   if(index<0)return ''
   const left=(index%16)*100/15,top=Math.floor(index/16)*100/15
@@ -33,12 +34,12 @@ export function profileView(profile:ProfilePage,linkEmail:boolean,admin=false){
   const card={handle:profile.handle,...profile.details}
   const ratings=['Bullet','Blitz','Rapid'].map(group=>{
     const rating=profile.ratings[group]
-    return '<div><dt>'+group+'</dt><dd>'+(establishedRating(rating)??(countedGames(rating)+'/10'))+'</dd></div>'
+    return '<div><dt>'+group+'</dt><dd>'+(establishedRating(rating)??'Unranked')+'</dd></div>'
   }).join('')
   const history=profile.history.map(game=>'<li><a href="/?game='+encodeURIComponent(game.id)+'">'+s(game.pool)+' · '+s(game.result)+
     (game.delta===undefined?'':' · '+(game.delta>=0?'+':'')+game.delta)+'</a></li>').join('')
   return socialNav('profile',admin)+'<div class="profile-summary">'+avatar(card)+'<div><h1>'+s(card.displayName||profile.user.name)+'</h1>'+
-    '<p class="profile-handle">@'+s(card.handle)+'</p>'+flag(card.country)+'</div><button class="primary" data-do="edit-profile">Edit profile</button></div>'+
+    numberLine(profile.playerNumber)+'<p class="profile-handle">@'+s(card.handle)+'</p>'+flag(card.country)+'</div><button class="primary" data-do="edit-profile">Edit profile</button></div>'+
     (card.bio?'<p class="profile-bio">'+s(card.bio)+'</p>':'')+'<dl class="profile-ratings">'+ratings+'</dl><a href="/#stats" data-do="stats">Rating history</a>'+
     '<h2>Game history</h2>'+(history?'<ul class="profile-history">'+history+'</ul>':'<p>No completed games yet.</p>')+
     '<div class="tools profile-tools">'+(linkEmail?'<button data-do="link-email">Add email sign-in</button>':'')+'<button data-do="logout">Sign out</button></div>'
@@ -74,14 +75,14 @@ function presence(card:PlayerCard){
 
 function playerRow(card:PlayerCard){
   return '<li class="social-row">'+avatar(card)+'<div class="social-person"><button type="button" class="link player-link" data-player="'+s(card.handle)+'">'+s(display(card))+'</button>'+
-    '<small>@'+s(card.handle)+'</small>'+flag(card.country)+presence(card)+'</div><div class="social-actions">'+friendActions(card)+'</div></li>'
+    '<small>@'+s(card.handle)+'</small>'+numberLine(card.playerNumber)+flag(card.country)+presence(card)+'</div><div class="social-actions">'+friendActions(card)+'</div></li>'
 }
 
 const playerRows=(cards:PlayerCard[])=>'<ul class="social-list">'+cards.map(playerRow).join('')+'</ul>'
 
 export function playerDialog(card:PlayerCard){
   return '<h2 id="player-title">'+s(display(card))+'</h2><div class="profile-summary public-profile">'+avatar(card)+
-    '<div><p class="profile-handle">@'+s(card.handle)+'</p>'+flag(card.country)+presence(card)+'</div></div>'+
+    '<div>'+numberLine(card.playerNumber)+'<p class="profile-handle">@'+s(card.handle)+'</p>'+flag(card.country)+presence(card)+'</div></div>'+
     (card.bio?'<p class="profile-bio">'+s(card.bio)+'</p>':'')+
     '<div class="social-actions">'+friendActions(card)+'</div><p id="player-action-status" role="status"></p>'
 }
@@ -97,6 +98,6 @@ export const playerResults=(cards:PlayerCard[])=>cards.length?playerRows(cards):
 
 export function friendsView(list:FriendList){
   return socialNav('friends')+'<h1>Friends</h1>'+
-    '<form id="friend-search" class="friend-search"><label for="friend-query">Find by username</label><div><input id="friend-query" name="query" type="search" autocomplete="off" minlength="3" maxlength="39" placeholder="Player username" required><button class="primary">Find players</button></div></form>'+
+    '<form id="friend-search" class="friend-search"><label for="friend-query">Find by username or player ID</label><div><input id="friend-query" name="query" type="search" autocomplete="off" maxlength="39" placeholder="Username or #12" required><button class="primary">Find players</button></div></form>'+
     '<p id="friends-status" role="status"></p><div id="people-results"></div><div id="friend-groups">'+friendsGroups(list)+'</div>'
 }

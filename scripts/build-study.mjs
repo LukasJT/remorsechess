@@ -1,3 +1,5 @@
+import {puzzleAt,publicPuzzleIds} from '../src/puzzle-book.ts'
+import {at,name,legal,play} from '../src/rules.ts'
 import {mkdir,readFile,writeFile} from 'node:fs/promises'
 import {openings,replayStudy} from '../src/openings.ts'
 
@@ -25,6 +27,41 @@ const exercises=[
 for(const [slug,title,opening,lesson,description] of exercises){
   const route='/study/styles/'+slug+'/'
   await write(route,page(title,description,route,`<p><a href="/study/">All exercises</a></p><h2>${escape(lesson)}</h2><p>${escape(description)}</p><p><a href="/openings/${opening}/">Try it on the study board</a> · <a href="/rules/">Check the rules</a></p>`))
+}
+const featuredPuzzles=[
+  {
+    slug:'the-volunteer',title:'The Volunteer',
+    question:'Can a pawn take two pieces in one turn in Remorse Chess?',
+    description:'Roll a six and use a pawn’s mandatory bonus move to capture the black queen. Play The Volunteer puzzle.',
+    answer:'Yes. In The Volunteer, White’s pawn on e4 captures the pawn on d5. The six makes it a psychopath. White must move that pawn again because it has a legal follow-up. From d5 it can capture the black queen on c6 before Black gets a turn.',
+    rule:'/rules/#bonus',ruleLabel:'Read the bonus-move rule',
+  },
+  {
+    slug:'last-chance',title:'Last Chance',
+    question:'How can a bishop save a devastated queen?',
+    description:'Use an adjacent bishop to save your devastated queen before her countdown expires.',
+    answer:'Select the bishop on c3 and absolve the queen on d4. Diagonal neighbors count. Both pieces stay on their squares, the queen can move and capture again, and White’s turn ends. The die preview applies to a capture. Absolution spends a turn without rolling.',
+    rule:'/rules/#absolution',ruleLabel:'Read the bishop absolution rule',
+  },
+]
+const symbols={white:{p:'♙',n:'♘',b:'♗',r:'♖',q:'♕',k:'♔'},black:{p:'♟',n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'}}
+const pieceNames={p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'}
+await write('/puzzles/',page('Remorse Chess puzzles','Play Remorse Chess tactics with the die result shown before your first capture.','/puzzles/',`<link rel="stylesheet" href="/public-puzzle.css"><section id="puzzle-workspace" aria-label="Puzzle workspace"><p>Know the next roll before you move. Try a pawn’s double capture or save a queen before she disappears.</p></section><section class="puzzle-library"><h2>Featured puzzles</h2><ul>${featuredPuzzles.map(p=>`<li><a href="/puzzles/${p.slug}/">${p.title}</a>. ${p.description}</li>`).join('')}</ul><p><a href="/rules/">Read the rules</a> · <a href="/">Play Remorse Chess</a></p></section><script type="module" src="/assets/puzzle.js"></script>`))
+for(const p of featuredPuzzles){
+  const id=publicPuzzleIds[p.slug]
+  const puzzle=puzzleAt(id)
+  let position=puzzle.game
+  for(const move of puzzle.line){
+    const action=legal(position).find(a=>a.type!=='end'&&name(a.from)+name(a.to)===move)
+    position=play(position,action,()=>puzzle.face).game
+  }
+  const board=Array.from({length:64},(_,i)=>{
+    const square=(7-(i>>3))*8+i%8
+    const piece=at(puzzle.game,square)
+    return `<span class="${(i%2)===(i>>3)%2?'light':'dark'}" aria-label="${name(square)}${piece?' '+piece.side+' '+pieceNames[piece.kind]:' empty'}">${piece?symbols[piece.side][piece.kind]:''}<small>${name(square)}</small></span>`
+  }).join('')
+  const route='/puzzles/'+p.slug+'/'
+  await write(route,page(p.title,p.description,route,`<link rel="stylesheet" href="/public-puzzle.css"><p><a href="/puzzles/">All puzzles</a></p><p>White to move. ${escape(puzzle.goal)}</p><p><strong>Next capture roll: ${puzzle.face} · ${puzzle.face===6?'Psychopath':'Devastated'}</strong></p><button id="try-puzzle" hidden>Try this puzzle</button><section aria-label="Puzzle board" tabindex="-1" data-public-puzzle="${id}"><div class="puzzle-board" role="img" aria-label="Starting board. ${puzzle.game.pieces.map(piece=>piece.side+' '+pieceNames[piece.kind]+' on '+name(piece.square)).join(', ')}">${board}</div></section><h2>${p.question}</h2><p>${p.answer}</p><p><a href="${p.rule}">${p.ruleLabel}</a> · <a href="/">Play Remorse Chess</a></p><script type="module" src="/assets/puzzle.js"></script>`))
 }
 const sitemap=await readFile('dist/sitemap.xml','utf8')
 const entries=routes.map(route=>`  <url><loc>https://remorsechess.com${route}</loc></url>`)

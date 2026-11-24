@@ -1,12 +1,15 @@
-import {ratingDistribution,referenceCounts,referenceDate,referenceQuantile,referenceSource,type LivePool} from './rating-reference.ts'
+import {maxScientistElo,scientistBots,scientistPortrait,type ScientistBot} from './scientist-bots.ts'
+import {puzzleAt,puzzleCount} from './puzzle-book.ts'
+import {queueHandle,thinkTime} from './queue-opponent.ts'
+import {ratingDistribution,referenceCounts,referenceDate,referenceSource,type LivePool} from './rating-reference.ts'
 import './style.css'
 import {homeGuide} from './home-guide.ts'
-import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,bonusIsRequired,CURRENT_RULES,type Action,type Side,type Kind,type Piece,type RulesVersion} from './rules.ts'
-import {command,dailyDays,makeMatch,expire,remaining,presets,type Match,type Control,type Command,type DailyLobby} from './match.ts'
+import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,bonusIsRequired,CURRENT_RULES,type Game,type Action,type Side,type Kind,type Piece,type RulesVersion} from './rules.ts'
+import {command,dailyDays,makeMatch,end,expire,remaining,presets,type Match,type Control,type Command,type DailyLobby} from './match.ts'
 import {pool,countedGames,establishedRating,ratingDelta,type Rating,type RatingImpact,type RatingEvent} from './rating.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
-import {avatarSize,maxAvatarBytes,validHandle,type FriendAction,type FriendList,type PlayerCard,type ProfileEdit} from './social.ts'
-import {escapeHTML as safe,friendsGroups,friendsView,playerDialog,playerResults,profileEditor,profileView,type ProfilePage} from './social-view.ts'
+import {avatarSize,maxAvatarBytes,validHandle,validPlayerNumber,type FriendAction,type FriendList,type PlayerCard,type ProfileEdit} from './social.ts'
+import {flag,escapeHTML as safe,friendsGroups,friendsView,playerDialog,playerResults,profileEditor,profileView,type ProfilePage} from './social-view.ts'
 import type {AdminUsers} from './admin.ts'
 import type {PublicKeyCredentialCreationOptionsJSON,PublicKeyCredentialRequestOptionsJSON} from '@simplewebauthn/browser'
 const root=document.querySelector<HTMLElement>('#app')!
@@ -81,7 +84,7 @@ function rulesText(version:RulesVersion=CURRENT_RULES){
 }
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:true,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
-type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratingPool?:string|null;nameplates?:Partial<Record<Side,number|null>>};seat:Side|null;match:Match;now:number;ratingImpact?:RatingImpact}
+type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratingPool?:string|null;countries?:Partial<Record<Side,string>>;nameplates?:Partial<Record<Side,number|null>>};seat:Side|null;match:Match;now:number;ratingImpact?:RatingImpact}
 type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean;admin:boolean}
 type SearchTicket=Control&{rated:boolean;flexible:boolean;searchId:string}
 let session:Session|null=null
@@ -91,6 +94,8 @@ let id='', info:Snapshot['room']|null=null, seat:Side|null=null, offset=0, socke
 let ratingImpact:RatingImpact|undefined
 let practiceRating:number|null=null
 let difficulty:Difficulty='tactical'
+let quickName=''
+let quickCountry=''
 let quickBot=false
 const botLevel=():Difficulty=>quickBot?'rookie':difficulty
 let human:Side='white'
@@ -119,11 +124,17 @@ function renderSponsor(){
   if(location.hostname!=='remorsechess.com')return
   const width=document.documentElement.clientWidth
   const inMatch=Boolean(m&&(mode==='online'||mode==='local'||mode==='bot'))
-  const rails=prefs.ads&&inMatch&&width>=1260&&!matchMedia('(max-height: 540px)').matches
+  const tallEnough=!matchMedia('(max-height: 540px)').matches
+  const rails=prefs.ads&&inMatch&&width>=1260&&tallEnough
+  const homeRail=prefs.ads&&mode==='home'&&width>=1360&&tallEnough
+  const railLayout=rails?'match':homeRail?'home':''
   const bottom=prefs.ads&&(mode==='home'||inMatch)?width>=752?'desktop':width>=320?'mobile':'':''
   document.body.classList.toggle('match-sponsors',rails)
-  if(rails!==sponsorRails.hasChildNodes()){
-    sponsorRails.innerHTML=rails?sponsorFrame('match-left','Left banner ad')+sponsorFrame('match-right','Right banner ad'):''
+  document.body.classList.toggle('home-sponsors',homeRail)
+  if(sponsorRails.dataset.layout!==railLayout){
+    sponsorRails.dataset.layout=railLayout
+    sponsorRails.innerHTML=(rails?sponsorFrame('match-left','Left banner ad'):'')+
+      (railLayout?sponsorFrame('match-right','Right banner ad'):'')
   }
   if(sponsorBottom.dataset.format!==bottom){
     sponsorBottom.dataset.format=bottom
@@ -215,11 +226,11 @@ function dailyPanel(){
     '<p id="daily-status" role="status">'+safe(dailyMessage)+'</p><div id="daily-list">'+dailyList()+'</div>'
 }
 function home(){
-  const hero='<section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Roll a die on each piece’s first capture. Your knight might freeze with guilt. Your queen might start eating her own team.</p>'+
+  const hero='<section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Remorse Chess is the chess variant <a href="/history/">from TikTok</a> where each piece rolls a die after its first capture. A piece can freeze, lose the ability to capture, or earn a second move. Play online here or <a href="/rules/">learn the rules</a>.</p>'+
     '<a class="link hero-rules" href="#how-to-play">How to play ↓</a>'+button('tutorial','▶ Try the tutorial','link')+'</section>'
   const play='<section class="panel launch"><h2>♜ PLAY <span id="online-count">'+activityLabel()+'</span></h2><div class="pad">'+
     '<div class="play-tabs" role="group" aria-label="Play mode"><button data-do="live-tab" aria-pressed="'+(playTab==='live')+'">Live</button><button data-do="daily-tab" aria-pressed="'+(playTab==='daily')+'">Daily</button></div>'+
-    (playTab==='daily'?dailyPanel():livePanel())+'</div></section>'
+    (canResume()?button('resume-game','Resume game','primary full'):'')+(playTab==='daily'?dailyPanel():livePanel())+'</div></section>'
   const outcomes=[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')
   return '<main class="home">'+hero+play+'<section class="outcomes">'+outcomes+'</section>'+homeGuide+'</main>'
 }
@@ -237,18 +248,22 @@ function view(){
   reviewCache={source:m!,index:review,view:snapshot}
   return snapshot
 }
-const canAct=()=>Boolean(m?.start&&!m.game.result&&!busy&&review===null&&(mode!=='tutorial'||m.game.side==='white'||lesson===3)&&(mode==='online'?seat===m.game.side:mode!=='bot'||m.game.side===human))
+const canAct=()=>Boolean(mode!=='bot-exhibition'&&m?.start&&!m.game.result&&!busy&&review===null&&(mode!=='tutorial'||m.game.side==='white'||lesson===3)&&(mode==='online'?seat===m.game.side:mode!=='bot'||m.game.side===human))
 function player(side:Side,v:Match){
-  const who=mode==='online'?(info?.bot===side?'Opponent':info?.[side]??'Open seat'):
-    mode==='bot'&&side!==human?(quickBot?'Opponent':difficulties[botLevel()].name+' Bot'):names[side]
+  const scientist=mode==='bot-exhibition'?exhibition?.[side]:mode==='bot'&&side!==human?playingScientist:undefined
+  const who=scientist?.name??(mode==='online'?(info?.[side]??'Open seat'):
+    mode==='bot'&&side!==human?(quickBot?quickName:practicePuzzle===undefined?(playingScientist?.name??'Bot '+selectedBotElo):'Practice bot'):names[side])
   const rating=mode==='online'?info?.nameplates?.[side]:side===human?practiceRating:null
   const ratedName=mode==='online'?Boolean(info?.[side]):mode==='bot'&&!quickBot&&side===human
   const displayRating=ratedName?' <span '+(mode==='bot'?'data-practice-rating ':'')+'title="'+safe((info?.ratingPool??(mode==='bot'&&v.control.seconds?pool(v.control.seconds,v.control.increment):'This game'))+(rating==null?' · No established rating':' rating'))+'">('+(rating??'?')+')</span>':''
-  return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'"><span class="icon '+side+'">♚</span><div><b>'+safe(who)+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+'</small></div><time id="clock-'+side+'">—</time></div>'
+  const privateSeat=mode==='online'?info?.bot===side:mode==='bot'&&quickBot&&side!==human
+  const country=mode==='online'?info?.countries?.[side]:mode==='bot'&&side===human?quickCountry:''
+  const handle=privateSeat?button('private-profile',safe(who)):safe(who)
+  return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'">'+(scientist?'<span class="scientist-match-avatar">'+scientistPortrait(scientist)+'</span>':'<span class="icon '+side+'">♚</span>')+'<div><b>'+flag(country??'')+handle+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+(scientist?' · '+scientist.elo+' Elo':'')+'</small></div><time id="clock-'+side+'">—</time></div>'
 }
 function ratingPreview({win,draw,loss,placement,projected}:RatingImpact){
   const outcomes=[['Win',win],['Draw',draw],['Loss',loss]] as const
-  return '<section class="rating-impact" aria-labelledby="rating-impact-title"><h2 id="rating-impact-title">'+(placement===undefined?'Rating change':'Placements '+placement+'/10')+' <small>Estimate</small></h2><dl>'+
+  return '<section class="rating-impact" aria-labelledby="rating-impact-title"><h2 id="rating-impact-title">'+'Rating change'+' <small>Estimate</small></h2><dl>'+
     outcomes.map(([label,delta],index)=>'<div><dt>'+label+'</dt><dd class="'+(delta>0?'gain':delta<0?'loss':'')+'">'+
       (projected?.[index]??(delta>0?'+'+delta:delta<0?'−'+Math.abs(delta):'0'))+'</dd></div>').join('')+'</dl></section>'
 }
@@ -288,7 +303,7 @@ function game(){
   const other=seat&&opposite(seat)
   const opponent=mode==='online'&&session?.account&&!info?.bot&&other&&info?.[other+'Account' as 'whiteAccount'|'blackAccount']?info[other]:null
   const preview=mode==='online'&&seat&&info?.rated&&review===null&&!g.result&&ratingImpact?ratingPreview(ratingImpact):''
-  return '<main class="game"><section class="game-board-area"><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.rated?'RATED ONLINE':info?.bot?'RANKED QUEUE · UNRATED':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY':difficulties[difficulty].name.toUpperCase()+' BOT'):'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+compactRoll+(g.result?button('result','Result'):'')+(canAct()&&bonusPiece&&!mandatoryBonus?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||prompt)+'</p>'+preview+'<button class="game-jump" data-do="game-details" aria-controls="match-details">Moves &amp; details</button></section><aside id="match-details"><button class="board-jump" data-do="game-board">Back to board</button><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log" data-tab="'+tab+'">'+(tab==='Rules'?rulesText(g.rulesVersion):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(opponent?button('opponent-profile','Player profile'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
+  return '<main class="game"><section class="game-board-area"><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):mode==='bot'&&practicePuzzle!==undefined?'<a href="/puzzles/">← Puzzles</a>':mode==='bot'&&!quickBot?button('bot','← Opponents'):mode==='bot-exhibition'?button('admin','← Admin'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.rated?'RATED ONLINE':info?.bot?'RANKED QUEUE · UNRATED':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY':practicePuzzle===undefined?'BOT '+selectedBotElo:'PUZZLE PRACTICE'):mode==='bot-exhibition'?'BOT VS BOT · EXHIBITION':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+compactRoll+(g.result?button('result','Result'):'')+(canAct()&&bonusPiece&&!mandatoryBonus?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||prompt)+'</p>'+preview+'<button class="game-jump" data-do="game-details" aria-controls="match-details">Moves &amp; details</button></section><aside id="match-details"><button class="board-jump" data-do="game-board">Back to board</button><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log" data-tab="'+tab+'">'+(tab==='Rules'?rulesText(g.rulesVersion):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(mode!=='bot-exhibition'&&!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(opponent?button('opponent-profile','Player profile'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
 const navIcons={
   play:'<path d="m9 5 11 7-11 7z"/>',
@@ -314,14 +329,14 @@ function siteNavigation(){
     return '<button type="button" data-do="'+action+'"'+active+'>'+content+'</button>'
   }
   return '<nav id="site-nav" aria-label="Main navigation"><div class="site-nav-group" role="group" aria-label="Play">'+
-    item('play','Play','home','/')+item('daily','Daily games','daily-tab','/#daily')+item('bot','Practice vs bot','bot')+
+    item('play','Play','home','/')+item('daily','Daily games','daily-tab','/#daily')+item('bot','Practice vs bot','bot','/#bots')+
     item('watch','Watch','watch','/#watch')+'</div><div class="site-nav-group" role="group" aria-label="Learn">'+
-    item('openings','Openings',undefined,'/openings/')+item('study','Study',undefined,'/study/')+item('rules','Rules',undefined,'/rules/')+
+    item('study','Puzzles',undefined,'/puzzles/')+item('openings','Openings',undefined,'/openings/')+item('study','Study',undefined,'/study/')+item('rules','Rules',undefined,'/rules/')+
     '</div><div class="site-nav-group" role="group" aria-label="Community and account">'+item('ratings','Ratings','leaders','/#leaders')+
     (session?.account?item('ratings','Rating history','stats','/#stats'):'')+item('friends','Friends','friends','/#friends')+
     (session?.account?item('profile','Profile','profile','/#profile'):session?.passkeys?item('profile','Sign in','sign-in'):
       session?.signIn?item('profile','Sign in',undefined,'/api/auth/start'):'')+
-    item('settings','Settings','settings')+'</div></nav>'
+    (session?.admin?item('profile','Admin','admin','/#admin'):'')+item('settings','Settings','settings')+'</div></nav>'
 }
 function setSiteMenu(open:boolean){
   $('#site-menu')?.setAttribute('aria-expanded',String(open))
@@ -339,7 +354,7 @@ function render(){
     {top:oldLog.scrollTop,atEnd:oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<24}:null
   root.innerHTML='<header class="site-bar"><button type="button" id="site-menu" data-do="site-menu" aria-controls="site-nav" aria-expanded="false">'+
     navIcon('menu')+'<span>Menu</span></button><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a></header>'+
-    siteNavigation()+(mode==='home'?home():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+
+    siteNavigation()+(mode==='home'?home():mode==='bot-picker'?botPicker():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+
     '" id="account" data-page="'+safe(accountTab)+'">Loading…</main>':game())+
     '<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
   setSiteMenu(false)
@@ -347,7 +362,7 @@ function render(){
   if(mode==='account'&&accountView?.dataset.page===accountTab)$('#account')?.replaceWith(accountView)
   document.body.classList.toggle('crt',prefs.crt)
   document.body.classList.toggle('reduced',prefs.motion||prefs.speed==='off')
-  document.body.classList.toggle('match-open',mode!=='home'&&mode!=='account')
+  document.body.classList.toggle('match-open',mode!=='home'&&mode!=='account'&&mode!=='bot-picker')
   if(focused)$('[data-square="'+focus+'"]')?.focus({preventScroll:true})
   if(settingsOpen){
     settings()
@@ -361,8 +376,12 @@ function render(){
 }
 function tell(s:string){status=s;const el=$('#status');if(el)el.textContent=s}
 function tick(){
-  if(!m||['home','account'].includes(mode))return
-  if(mode!=='online'&&review===null){const next=expire(m,Date.now());if(next!==m){m=next;render();scheduleResult(next);return}}
+  if(!m)return
+  if(activeKind()!=='online'&&review===null){
+    const next=expire(m,Date.now())
+    if(next!==m){m=next;rememberBot();if(!parked){render();scheduleResult(next)};return}
+  }
+  if(parked||mode==='home'||mode==='account'||mode==='bot-picker')return
   const v=view()
   for(const side of ['white','black'] as const){
     const node=$('#clock-'+side)
@@ -387,8 +406,9 @@ function showResult(celebrate=false){
   const {winner,reason}=m.game.result
   const perspective=mode==='bot'?human:mode==='online'?seat:null
   const outcome=!winner?'draw':perspective&&winner!==perspective?'loss':'win'
-  const title=!winner?'Draw':perspective?winner===perspective?'You win':'You lose':cap(winner)+' wins'
-  const score=!winner?'½ – ½':winner==='white'?'1 – 0':'0 – 1'
+  const cancelled=reason==='Game cancelled'
+  const title=cancelled?'Game cancelled':!winner?'Draw':mode==='bot-exhibition'&&exhibition?safe(exhibition[winner].label)+' wins':perspective?winner===perspective?'You win':'You lose':cap(winner)+' wins'
+  const score=cancelled?'—':!winner?'½ – ½':winner==='white'?'1 – 0':'0 – 1'
   const winnerText=winner&&perspective?'<span class="result-winner">'+cap(winner)+' wins</span>':''
   const again=mode==='online'?(seat?info?.control.days?button('daily-tab','Daily games','primary'):info?.bot?button('queue-again','Find another ranked match','primary'):button('rematch','Rematch','primary'):''):button('restart','Play again','primary')
   const victory=outcome==='win'&&celebrate&&!prefs.motion&&prefs.speed!=='off'
@@ -396,7 +416,7 @@ function showResult(celebrate=false){
     '<div class="result-emblem" aria-hidden="true"><span class="result-symbol">'+(outcome==='win'?'♛':outcome==='loss'?'♚':'½')+'</span></div>'+
     '<h2 id="result-title">'+title+'</h2><p class="result-reason">'+safe(reason)+(info?.bot&&!info.rated&&mode==='online'?' · Unrated game':'')+'</p>'+
     '<p class="result-score" aria-label="White–Black score">'+score+winnerText+'</p>'+
-    (mode==='online'&&info?.rated&&seat?'<p data-settled-rating role="status">Saving rating…</p>':'')+
+    (mode==='online'&&info?.rated&&seat&&!cancelled?'<p data-settled-rating role="status">Saving rating…</p>':'')+
     '<div class="result-actions">'+again+(m.log.length?button('review-result','Review game'):'')+
     button('home','Back to lobby','link')+'</div></section>','result')
   $('#modal')?.setAttribute('aria-labelledby','result-title')
@@ -411,9 +431,7 @@ async function showSettledRating(game:string,line:Element){
       if(event){
         const delta=ratingDelta(event.before,event.after)
         const value=Math.round(event.after.rating)
-        line.textContent=event.sequence<10?event.pool+' placements '+event.sequence+'/10 · Predicted rating '+value:
-          event.sequence===10?'Placed in '+event.pool+' · '+value:
-          event.pool+' rating '+value+' ('+(delta>0?'+':'')+delta+')'
+        line.textContent=event.pool+' rating '+value+' ('+(delta>0?'+':'')+delta+')'
         line.insertAdjacentHTML('afterend',button('stats','Rating history'))
         return
       }
@@ -463,21 +481,136 @@ function savePrefs(){
 function clocksDialog(){
   modal('<h2>Custom clock &amp; untimed</h2><div class="clocks">'+clocks([11,...presets.map((_,i)=>i).slice(13)])+'</div><form id="custom"><h3>Custom clock</h3><div class="settings"><label>Minutes<input type="number" name="minutes" value="5" min="0" max="360" required></label><label>Seconds<input type="number" name="seconds" value="0" min="0" max="59" required></label><label>Increment<input type="number" name="increment" value="2" min="0" max="180" required></label></div><button class="primary">Use custom clock</button></form>')
 }
+type ResumableBot={match:Match;seed:Game;human:Side;quick:boolean;name:string;difficulty:Difficulty;elo:number;anchors:number[];puzzleId?:number;scientistId?:string;seenAt:number;leftAt?:number}
+let parked:''|'online'|'bot'|'local'=''
+const activeKind=()=>parked||mode
+const savedRoom='remorse-live-room'
+const savedBot='remorse-live-bot'
+const hasPlayed=(match?:Match|null)=>Boolean(match?.log.some(entry=>entry.event))
+function stored<T>(key:string):T|null{
+  try{return JSON.parse(localStorage.getItem(key)??'null') as T|null}catch{return null}
+}
+function remember(key:string,value:unknown){
+  try{if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,JSON.stringify(value))}catch{}
+}
+function rememberBot(leaving=false){
+  if(activeKind()!=='bot'||!m)return
+  if(!hasPlayed(m)){remember(savedBot,null);return}
+  const data:ResumableBot={match:m,seed,human,quick:quickBot,name:quickName,difficulty,elo:selectedBotElo,anchors:botAnchors,puzzleId:practicePuzzle,scientistId:playingScientist?.id,seenAt:Date.now(),leftAt:leaving?Date.now():undefined}
+  remember(savedBot,data)
+}
+function canResume(){
+  return Boolean(parked&&m||stored<string>(savedRoom)||hasPlayed(stored<ResumableBot>(savedBot)?.match))
+}
+function parkGame(){
+  if(!parked&&m&&!m.game.result&&hasPlayed(m)&&((mode==='online'&&seat&&!info?.control.days)||mode==='bot'||mode==='local')){
+    parked=mode
+    review=null;selected=null;clearTimeout(resultTimer)
+  }else if(!parked){
+    if(mode==='online'&&id&&!info?.control.days&&!hasPlayed(m)){
+      const room=id
+      if(stored<string>(savedRoom)===room)remember(savedRoom,null)
+      void api<{resumable:boolean}>('room/'+room+'/cancel-unplayed',{}).then(result=>{
+        // A move can arrive between the last snapshot and the cancellation request.
+        if(result.resumable&&!stored<string>(savedRoom)){
+          remember(savedRoom,room)
+          if(mode==='home')render()
+        }
+      }).catch(()=>{})
+    }
+    if(mode==='bot')remember(savedBot,null)
+    if(mode==='online'&&m?.game.result&&stored<string>(savedRoom)===id)remember(savedRoom,null)
+    closeRoom();m=null
+  }
+}
+async function resumeGame(){
+  if(parked&&m){
+    mode=parked;parked='';status='';review=null
+    if(mode==='online')history.replaceState({},'','/?game='+id)
+    render();tick();scheduleResult(m,0,false);window.scrollTo(0,0)
+    if(mode==='online')void sync()
+    return
+  }
+  const room=stored<string>(savedRoom)
+  if(room&&/^[a-f0-9]{32}$/.test(room)){
+    await login()
+    const result=await api<{resumable:boolean}>('room/'+room+'/resume-status')
+    if(result.resumable){await online(room);return}
+    if(stored<string>(savedRoom)===room)remember(savedRoom,null)
+    render()
+  }
+  const data=stored<ResumableBot>(savedBot)
+  if(!data||!hasPlayed(data.match))return
+  closeRoom();mode='bot';id='';info=null;seat=null;status='';selected=null;review=null;absolve=false;past=[];future=[];tab='Moves'
+  m=data.match;seed=data.seed;human=data.human;quickBot=data.quick;quickName=data.name;difficulty=data.difficulty;selectedBotElo=data.elo;botAnchors=data.anchors;practicePuzzle=data.puzzleId
+  playingScientist=scientistBots.find(bot=>bot.id===(data.scientistId==='rutherford'?'newton':data.scientistId))
+  flipped=human==='black';soundVersion=m.version
+  const now=Date.now()
+  const disconnect=(data.leftAt??data.seenAt)+60_000
+  if(!m.game.result&&m.game.side!==human){
+    const {chooseMove}=await import('./bot.ts')
+    for(let moves=0;moves<2&&!m.game.result&&m.game.side!==human;moves++){
+      const due=Math.max(data.seenAt,m.start+(quickBot?thinkTime(m,remaining(m,m.game.side,m.start),()=>.5):230))
+      if(due>Math.min(disconnect,now))break
+      const step=chooseMove(m.game,botLevel())
+      if(!step)break
+      m=command(m,m.game.side,step,due)??m
+    }
+  }
+  m=expire(m,Math.min(now,disconnect))
+  if(!m.game.result&&now>=disconnect)m=end(m,{winner:opposite(human),reason:'Disconnected'},disconnect)
+  history.replaceState({},'','/')
+  rememberBot();render();scheduleResult(m,0,false);window.scrollTo(0,0);bot()
+}
+window.addEventListener('pagehide',()=>{
+  if(queue){
+    const ticket=queue
+    queue=null;generation++;clearTimeout(queueTimer)
+    navigator.sendBeacon('/api/queue',new Blob([JSON.stringify({...ticket,cancel:true})],{type:'application/json'}))
+  }
+  rememberBot(true)
+  if(mode==='online'&&id&&!info?.control.days&&!hasPlayed(m)){
+    navigator.sendBeacon('/api/room/'+id+'/cancel-unplayed',new Blob(['{}'],{type:'application/json'}))
+  }
+})
+window.addEventListener('pageshow',event=>{
+  if(!event.persisted)return
+  if(activeKind()==='bot'){tick();rememberBot()}
+  if(mode==='home'&&!queue){status='';render()}
+})
+setInterval(()=>{if(activeKind()==='bot'&&m&&!m.game.result)rememberBot()},5000)
 function closeRoom(){
+  parked=''
   id=''
   clearTimeout(resultTimer)
   botAgent?.terminate();botAgent=null;clearTimeout(lessonTimer)
   if(socket){socket.onclose=null;socket.close();socket=null}
 }
 function goHome(keepGuide=false){
-  closeRoom();void cancel();mode='home';playTab='live';m=null;status='';review=null
+  parkGame();void cancel();mode='home';playTab='live';status='';review=null
   history.replaceState({},'',keepGuide?'/#how-to-play':'/');render()
   if(!keepGuide)window.scrollTo(0,0)
 }
-function local(kind:string,control=presets[choice],fromQuickPlay=false){
+let practicePuzzle:number|undefined
+function local(kind:string,control=presets[choice],fromQuickPlay=false,puzzleId?:number,scientist?:ScientistBot){
+  playingScientist=scientist
+  practicePuzzle=puzzleId
   closeRoom();void cancel();history.replaceState({},'','/')
+  if(puzzleId!==undefined)practiceRating=null
   quickBot=fromQuickPlay
+  if(kind==='bot'){
+    quickName=queueHandle()
+    quickCountry=''
+    const name=quickName
+    if(session?.account)void api<ProfilePage>('profile').then(p=>{if(mode==='bot'&&quickName===name){quickCountry=p.details.country;render()}}).catch(()=>{})
+  }
   mode=kind;m=makeMatch(kind==='tutorial'?{seconds:0,increment:0}:control,Date.now())
+  if(puzzleId!==undefined){
+    m.game=puzzleAt(puzzleId).game
+    human=m.game.side
+    difficulty='tactical'
+    history.replaceState({},'','/?practice-puzzle='+puzzleId)
+  }
   seat=null;selected=null;absolve=false;review=null;flipped=kind==='bot'&&human==='black';past=[];future=[];tab='Moves';status='';soundVersion=-1;focus=4
   if(kind==='tutorial'){
     const positions=[['white','k',4],['white','b',18],['white','n',10],['black','k',60],['black','p',27],['black','p',48]] as const
@@ -487,16 +620,17 @@ function local(kind:string,control=presets[choice],fromQuickPlay=false){
     lesson=0;status='Capture the pawn on d4 with the knight on c2.'
   }
   seed=m.game
+  rememberBot()
   render()
   window.scrollTo(0,0)
-  if(kind==='bot')bot()
+  if(kind==='bot'||kind==='bot-exhibition')bot()
 }
 let pulling='',lastSync=0
 async function sync(){
   if(!id||pulling===id)return
   const room=id;pulling=room;lastSync=Date.now()
   try{const data=await api<Snapshot>('room/'+room);if(id===room)apply(data)}
-  catch(e){if(id===room)tell((e as Error).message)}
+  catch(e){if(id===room&&!parked)tell((e as Error).message)}
   finally{if(pulling===room)pulling=''}
 }
 function apply(data:Snapshot){
@@ -508,7 +642,11 @@ function apply(data:Snapshot){
   if(changed)m=data.match
   offset=data.now-Date.now();info=data.room;seat=data.seat;ratingImpact=data.ratingImpact
   if(first){flipped=seat==='black';soundVersion=data.match.version;seed=initial(data.match.game.rulesVersion)}
-  if(changed){
+  if(seat&&!data.room.control.days){
+    if(hasPlayed(data.match)&&(!data.match.game.result||stored<string>(savedRoom)===id))remember(savedRoom,id)
+    else if(!hasPlayed(data.match)&&stored<string>(savedRoom)===id)remember(savedRoom,null)
+  }
+  if(changed&&!parked){
     status='';render()
     const delay=!first&&review===null&&data.match.log.length>previousLog?effects(data.match):0
     if(!hadResult)scheduleResult(data.match,delay,!first)
@@ -517,9 +655,9 @@ function apply(data:Snapshot){
 function wire(room:string){
   if(id!==room)return
   socket=new WebSocket((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/room/'+room+'/ws')
-  socket.onopen=()=>{if(id===room){tell('');void sync()}}
+  socket.onopen=()=>{if(id===room){if(!parked)tell('');void sync()}}
   socket.onmessage=()=>void sync()
-  socket.onclose=()=>{if(id===room){tell('Reconnecting…');window.setTimeout(()=>wire(room),2600)}}
+  socket.onclose=()=>{if(id===room){if(!parked)tell('Reconnecting…');window.setTimeout(()=>wire(room),2600)}}
 }
 async function online(room:string){
   closeRoom();mode='online';id=room;m=null;selected=null;absolve=false;review=null;seed=initial();seat=null;info=null;tab='Moves';status='';focus=4
@@ -734,69 +872,113 @@ function effects(match:Match):number{
 }
 function offlineStep(side:Side,action:Command,roll?:()=>number){
   if(!m)return false
-  const next=command(m,side,action,Date.now(),roll)
+  const knownRoll=practicePuzzle!==undefined&&mode==='bot'&&side===human&&!m.log.some(entry=>entry.event?.side===human&&entry.event.roll)
+    ?puzzleAt(practicePuzzle).face:undefined
+  const next=command(m,side,action,Date.now(),roll??(knownRoll===undefined?undefined:()=>knownRoll))
   if(!next){tell('That action is unavailable.');return false}
-  past.push(m);future=[];m=next
+  if(mode!=='bot-exhibition')past.push(m)
+  future=[];m=next
   if(mode==='local'&&prefs.autoFlip)flipped=m.game.side==='black'
-  status='';render();scheduleResult(next,effects(next));return true
+  rememberBot()
+  if(!parked){status='';render();scheduleResult(next,effects(next))}
+  return true
 }
 function bot(){
-  if(mode!=='bot'||!m||m.game.side===human||m.game.result)return
+  const automatic=activeKind()==='bot-exhibition'
+  if(!m||m.game.result||(!automatic&&(activeKind()!=='bot'||m.game.side===human)))return
+  if(automatic&&(!session?.admin||!exhibition))return
   const current=m
-  const level=botLevel()
+  const currentKind=activeKind()
+  const isCurrent=()=>activeKind()===currentKind&&m===current
+  const elo=automatic?exhibition![current.game.side].elo:selectedBotElo
+  const anchors=automatic?[300,900,maxScientistElo]:botAnchors
+  const delay=automatic?600:quickBot?thinkTime(current,remaining(current,current.game.side,today())):230
+  let level=botLevel()
+  if(automatic||!quickBot&&practicePuzzle===undefined){
+    const upper=anchors.findIndex(anchor=>anchor>=elo)
+    const lower=anchors[upper-1]??100
+    const fraction=(elo-lower)/(anchors[upper]-lower)
+    if(Math.random()<fraction)level=practiceLevels[upper]
+    else if(upper>0)level=practiceLevels[upper-1]
+    else{
+      const moves=legal(current.game)
+      const action=moves[Math.floor(Math.random()*moves.length)]
+      window.setTimeout(()=>{
+        if(isCurrent()&&action){offlineStep(current.game.side,action);bot()}
+      },delay)
+      return
+    }
+  }
   botAgent?.terminate()
   const worker=new Worker(new URL('./bot-worker.ts',import.meta.url),{type:'module'})
   botAgent=worker
   const commit=(action:Action|undefined)=>{
     worker.terminate()
     if(botAgent===worker)botAgent=null
-    if(mode!=='bot'||m!==current||!action)return
+    if(!isCurrent()||!action)return
     window.setTimeout(()=>{
-      if(mode!=='bot'||m!==current||!action)return
+      if(!isCurrent()||!action)return
       offlineStep(current.game.side,action)
       bot()
-    },230)
+    },delay)
   }
   worker.onmessage=(event:MessageEvent<Action|undefined>)=>commit(event.data)
   worker.onerror=()=>{
     worker.terminate()
-    if(botAgent!==worker||mode!=='bot'||m!==current)return
+    if(botAgent!==worker||!isCurrent())return
     botAgent=null
     void import('./bot.ts').then(({chooseMove})=>{
-      if(mode==='bot'&&m===current)commit(chooseMove(current.game,level))
+      if(isCurrent())commit(chooseMove(current.game,level))
     }).catch(()=>tell('The bot could not choose a move. Try restarting the game.'))
   }
   worker.postMessage({game:current.game,difficulty:level})
 }
 const practiceLevels=['rookie','tactical','expert'] as const
-const practiceTargets=[25,75,95] as const
+let selectedBotElo=900
+let botAnchors=[300,900,1400]
 const practiceClocks=[presets[0],presets[3],presets[7],{seconds:0,increment:0}]
-function botSetup(){
-  modal('<h2>Practice against a bot</h2><form id="bot-form"><div class="tools"><label>Clock <select name="clock">'+
-    practiceClocks.map((control,i)=>'<option value="'+i+'" '+(i===1?'selected':'')+'>'+clockLabel(control)+'</option>').join('')+
-    '</select></label><label>Play as <select name="color"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select></label></div>'+
-    '<label>Difficulty <input name="level" type="range" min="0" max="2" value="'+Math.max(0,practiceLevels.findIndex(level=>level===difficulty))+'"></label>'+
-    '<p data-bot-tier aria-live="polite"></p><label>Reference rating <input name="reference" type="number" min="100" max="3300" step="1"></label>'+
-    '<p>Targets use the '+referenceDate+' Chess.com buckets. Bot strength still needs human calibration.</p><button class="primary">Start game</button></form>')
-  const form=$<HTMLFormElement>('#bot-form')!
-  const range=form.querySelector<HTMLInputElement>('[name=level]')!
-  const exact=form.querySelector<HTMLInputElement>('[name=reference]')!
-  const clock=form.elements.namedItem('clock')
-  if(!(clock instanceof HTMLSelectElement))return
-  const describe=()=>{
-    const control=practiceClocks[Number(clock.value)]
-    const group=control.seconds?pool(control.seconds,control.increment):'Blitz'
-    const levels=practiceTargets.map(target=>referenceQuantile(group,target)!)
-    if(document.activeElement===exact&&Number.isFinite(exact.valueAsNumber)){
-      range.value=String(levels.reduce((best,next,i)=>Math.abs(exact.valueAsNumber-next)<Math.abs(exact.valueAsNumber-levels[best])?i:best,0))
-    }
-    const index=Number(range.value)
-    if(document.activeElement!==exact)exact.value=String(levels[index])
-    form.querySelector('[data-bot-tier]')!.textContent=difficulties[practiceLevels[index]].name+' · '+group+' target '+levels[index]+' (P'+practiceTargets[index]+')'
-  }
-  form.addEventListener('input',describe)
-  exact.addEventListener('blur',describe)
-  describe()
+let playingScientist:ScientistBot|undefined
+let exhibition:Record<Side,ScientistBot>|undefined
+let pickedScientist:ScientistBot|undefined=scientistBots.find(bot=>bot.id==='newton')
+let pickerClock=3
+let pickerColor:Side|'random'='white'
+let pickerElo=900
+
+function openBotPicker(){
+  parkGame()
+  void cancel()
+  mode='bot-picker'
+  history.replaceState({},'','/#bots')
+  render()
+  window.scrollTo(0,0)
+}
+
+function botPicker(){
+  const position=initial()
+  const board=(pickerColor==='black'?grid.slice().reverse():grid).map(sq=>{
+    const piece=at(position,sq)
+    return '<span class="sq '+((file(sq)+rank(sq))%2?'light':'dark')+'">'+
+      (piece?'<span class="piece '+piece.side+'">'+art(piece.kind,piece.side)+'</span>':'')+'</span>'
+  }).join('')
+  const picked=pickedScientist
+  const selected='<div class="scientist-selection">'+(picked?scientistPortrait(picked):'')+
+    '<div><h2>'+safe(picked?.name??'Custom engine')+'</h2><p>'+ (picked?.elo??pickerElo) +' Elo</p></div></div>'
+  const roster=scientistBots.map(bot=>{
+    const locked=bot.elo>maxScientistElo
+    return '<button type="button" class="scientist-card" data-scientist="'+bot.id+'" aria-pressed="'+(picked===bot)+'" '+
+      (locked?'disabled title="Not available yet" ':'')+'aria-label="'+safe(bot.name)+', '+bot.elo+' Elo'+(locked?', unavailable':'')+'">'+
+      scientistPortrait(bot)+'<span>'+safe(bot.label)+'</span><small>'+bot.elo+(locked?' · Locked':'')+'</small></button>'
+  }).join('')
+  const colors=['white','black','random'] as const
+  return '<main class="bot-lab"><section class="bot-lab-board"><h1>Practice vs bot</h1><div class="board '+prefs.theme+'" role="img" aria-label="Chess starting position">'+board+'</div></section>'+
+    '<section class="bot-lab-roster" aria-labelledby="bot-roster-title"><h2 id="bot-roster-title">Choose an opponent</h2>'+selected+
+    '<div class="scientist-grid" aria-label="Scientist opponents">'+roster+'</div>'+
+    '<form id="bot-form"><div class="bot-lab-options"><label>Clock <select name="clock">'+
+    practiceClocks.map((control,i)=>'<option value="'+i+'" '+(i===pickerClock?'selected':'')+'>'+clockLabel(control)+'</option>').join('')+
+    '</select></label><label>Play as <select name="color">'+colors.map(color=>'<option value="'+color+'" '+(color===pickerColor?'selected':'')+'>'+ (color==='random'?'Random':cap(color))+'</option>').join('')+
+    '</select></label></div>'+
+    (picked?'<button type="button" class="link" data-scientist="engine">Custom engine</button>':'<label class="bot-lab-range">Engine rating <input name="level" type="range" min="100" max="'+maxScientistElo+'" step="50" value="'+pickerElo+'"></label>')+
+    '<button class="primary full">'+(canResume()?'Resume current game':'Play '+(picked?.label??'custom engine'))+'</button></form></section></main>'
 }
 function signIn(){
   modal('<h2>Sign in or create an account</h2>'+
@@ -885,7 +1067,7 @@ async function passkey(action:'register'|'login',name?:string){
   finally{delete statusNode.dataset.busy}
 }
 async function send(action:Command){
-  if(!m||review!==null||busy)return
+  if(!m||mode==='bot-exhibition'||review!==null||busy)return
   selected=null;absolve=false
   if(mode==='online'){
     const room=id;busy=true
@@ -1022,7 +1204,7 @@ async function openRatingStats(node:HTMLElement){
       }while(before)
       const count=countedGames(current)
       const title=establishedRating(current)??(count?'Predicted rating '+Math.round(current!.rating):'Unranked')
-      output.innerHTML='<h2>'+title+'</h2>'+(count<10?'<p>Placements '+count+'/10</p>':'')
+      output.innerHTML='<h2>'+title+'</h2>'
       if((baseline&&baseline.recorded>=since)||(!events.length&&current&&count)){
         const prior=baseline?.rating??current!
         output.insertAdjacentHTML('beforeend','<p>Earlier results carried forward · '+countedGames(prior)+' games at '+Math.round(prior.rating)+'. Detailed history begins with the new rating system.</p>')
@@ -1034,22 +1216,21 @@ async function openRatingStats(node:HTMLElement){
       const earliest=ordered[0].time, latest=ordered.at(-1)!.time
       const point=(value:number,i:number)=>[45+(values.length===1?257:515*(ordered[i].time-earliest)/Math.max(1,latest-earliest)),110-(value-low)*90/(high-low)]
       const plotted=values.map(point)
-      const firstPlaced=ordered.findIndex(e=>e.sequence>=10)
+
       const line=(points:number[][],dashed=false)=>'<polyline fill="none" stroke="currentColor" stroke-width="2" '+(dashed?'stroke-dasharray="5 5" ':'')+'points="'+points.map(p=>p.join(',')).join(' ')+'"/>'
-      const placed=ordered.findIndex(e=>e.sequence===10)
+
       const total=events.reduce((n,e)=>n+e.score,0)
       const net=Math.round(ordered.at(-1)!.after.rating)-Math.round(ordered[0].before.rating)
       const average=Math.round(events.reduce((total,e)=>total+e.opponent,0)/events.length)
       const wins=events.filter(e=>e.score===1).length, draws=2*(total-wins)
       const bestWin=events.filter(e=>e.score===1).sort((a,b)=>b.opponent-a.opponent)[0]
-      const peak=events.filter(e=>e.sequence>=10).reduce<RatingEvent|undefined>((best,e)=>!best||e.after.rating>best.after.rating?e:best,undefined)
+      const peak=events.reduce<RatingEvent|undefined>((best,e)=>!best||e.after.rating>best.after.rating?e:best,undefined)
       output.insertAdjacentHTML('beforeend','<p>'+events.length+' games · '+wins+' wins · '+draws+' draws · '+(events.length-wins-draws)+' losses'+' · Net '+(net>0?'+':'')+net+' · Avg. opponent '+average+(bestWin?' · Best win '+Math.round(bestWin.opponent):'')+(peak?' · Peak '+Math.round(peak.after.rating)+' on '+new Date(peak.time).toLocaleDateString():'')+'</p>'+
-        '<svg class="rating-chart" viewBox="0 0 575 125" role="img" aria-label="Rating history. Dashed line shows placement estimates. The table gives exact values."><text x="4" y="25" fill="currentColor">'+high+'</text><text x="4" y="112" fill="currentColor">'+low+'</text>'+
-        line(plotted.slice(0,firstPlaced<0?undefined:firstPlaced+1),true)+(firstPlaced>=0?line(plotted.slice(firstPlaced)):'')+
-        (placed<0?'':'<circle cx="'+plotted[placed][0]+'" cy="'+plotted[placed][1]+'" r="5" fill="currentColor"><title>Placed after game 10</title></circle>')+
+        '<svg class="rating-chart" viewBox="0 0 575 125" role="img" aria-label="Rating history. The table gives exact values."><text x="4" y="25" fill="currentColor">'+high+'</text><text x="4" y="112" fill="currentColor">'+low+'</text>'+
+        line(plotted)+
         (values.length===1?'<circle cx="'+plotted[0][0]+'" cy="'+plotted[0][1]+'" r="3" fill="currentColor"/>':'')+
         '</svg><div class="ratings-table"><table><thead><tr><th>Game</th><th>Result</th><th>Rating</th><th>Change</th></tr></thead><tbody>'+
-        events.map(e=>'<tr><td><a href="/?game='+safe(e.id)+'">'+new Date(e.time).toLocaleDateString()+'</a></td><td>'+(e.score===1?'Win':e.score===0?'Loss':'Draw')+'</td><td>'+Math.round(e.after.rating)+(e.sequence<10?' (predicted)':'')+'</td><td>'+ratingDelta(e.before,e.after)+'</td></tr>').join('')+
+        events.map(e=>'<tr><td><a href="/?game='+safe(e.id)+'">'+new Date(e.time).toLocaleDateString()+'</a></td><td>'+(e.score===1?'Win':e.score===0?'Loss':'Draw')+'</td><td>'+Math.round(e.after.rating)+'</td><td>'+ratingDelta(e.before,e.after)+'</td></tr>').join('')+
         '</tbody></table></div>')
     }catch{if(version===request)output.textContent='Rating history is unavailable. Try again.'}
   }
@@ -1063,7 +1244,7 @@ async function account(which:string){
     signIn()
     return
   }
-  closeRoom();void cancel();mode='account';accountTab=which;myProfile=null;lastFriends='';render();window.scrollTo(0,0)
+  parkGame();void cancel();mode='account';accountTab=which;myProfile=null;lastFriends='';render();window.scrollTo(0,0)
   const node=$('#account')!
   history.replaceState({},'', ['profile','friends','admin','stats','watch','leaders','distribution'].includes(which)?'/#'+which:'/')
   if(which==='watch'){
@@ -1080,13 +1261,20 @@ async function account(which:string){
     const list=await api<FriendList>('friends')
     if(node.isConnected){lastFriends=JSON.stringify(list);node.innerHTML=friendsView(list)}
   }else if(which==='admin'){
-    node.innerHTML='<h1>Users</h1>'
+    node.innerHTML='<h1>Admin · Users</h1>'
     if(!user.admin){
       node.insertAdjacentHTML('beforeend','<p>Administrator access is required.</p>')
       return
     }
     node.insertAdjacentHTML('afterbegin','<nav class="social-nav" aria-label="Account"><a href="/#profile" data-do="profile">Profile</a><a href="/#admin" aria-current="page">Users</a></nav>')
-    node.insertAdjacentHTML('beforeend','<form id="admin-search" class="friend-search"><label for="admin-query">Find by username</label><div><input id="admin-query" name="query" type="search" autocomplete="off" maxlength="39" placeholder="Username starts with"><button class="primary">Search</button></div></form><p id="admin-status" role="status"></p><ul class="admin-users"></ul><button id="admin-more" data-do="admin-more" hidden>Load more users</button>')
+    node.insertAdjacentHTML('beforeend','<section class="admin-internal" hidden><h2>Owner &amp; friends</h2><ul class="admin-users"></ul></section><form id="admin-search" class="friend-search"><label for="admin-query">Find by username</label><div><input id="admin-query" name="query" type="search" autocomplete="off" maxlength="39" placeholder="Username starts with"><button class="primary">Search</button></div></form><p id="admin-status" role="status"></p><ul id="admin-players" class="admin-users" aria-label="Players"></ul><button id="admin-more" data-do="admin-more" hidden>Load more users</button>')
+    const options=(preferred:string)=>scientistBots.filter(bot=>bot.elo<=maxScientistElo).map(bot=>
+      '<option value="'+bot.id+'" '+(bot.id===preferred?'selected':'')+'>'+safe(bot.name)+' · '+bot.elo+' Elo</option>'
+    ).join('')
+    node.insertAdjacentHTML('beforeend','<section class="admin-exhibition"><h2>Bot vs Bot</h2><form id="admin-bot-game"><div class="bot-lab-options"><label>White <select name="white">'+options('einstein')+'</select></label>'+
+      '<label>Black <select name="black">'+options('newton')+'</select></label><label>Clock <select name="clock">'+
+      practiceClocks.map((control,i)=>'<option value="'+i+'" '+(i===3?'selected':'')+'>'+clockLabel(control)+'</option>').join('')+
+      '</select></label></div><button class="primary">Watch match</button><p role="status" id="exhibition-status"></p></form></section>')
     await loadAdminUsers(node)
   }else{
     const profile=await api<ProfilePage>('profile')
@@ -1097,11 +1285,11 @@ async function account(which:string){
   }
 }
 const signUpMethods={passkey:'Passkey',email:'Email',github:'GitHub'}
-const signUpDate=new Intl.DateTimeFormat(undefined,{dateStyle:'medium'})
+const signUpDate=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'})
 async function loadAdminUsers(node:HTMLElement,query='',after=''){
   if(node.dataset.loading)return
   const notice=node.querySelector<HTMLElement>('#admin-status')!
-  const list=node.querySelector<HTMLElement>('.admin-users')!
+  const list=node.querySelector<HTMLElement>('#admin-players')!
   const more=node.querySelector<HTMLButtonElement>('#admin-more')!
   const search=node.querySelector<HTMLButtonElement>('#admin-search button')!
   node.dataset.loading='true'
@@ -1111,18 +1299,24 @@ async function loadAdminUsers(node:HTMLElement,query='',after=''){
     const params=new URLSearchParams({q:query,after})
     const page=await api<AdminUsers>('admin/users?'+params)
     if(!node.isConnected)return
-    const rows=page.users.map(user=>{
-      const date=user.createdAt===undefined?'Date unavailable':signUpDate.format(user.createdAt)
-      return '<li><div><b>@'+safe(user.handle)+'</b>'+(user.displayName?'<small>'+safe(user.displayName)+'</small>':'')+'</div>'+
-        '<div>'+signUpMethods[user.registeredWith]+(user.registeredWith!=='email'&&user.emailLinked?' · Email linked':'')+'<small>'+safe(date)+'</small></div></li>'
-    }).join('')
-    if(!after)list.replaceChildren()
-    list.insertAdjacentHTML('beforeend',rows)
+    const row=(user:AdminUsers['users'][number])=>{
+      const date=user.createdAt===undefined?'Signup date unavailable':signUpDate.format(user.createdAt)
+      return '<li><div><b>@'+safe(user.handle)+'</b>'+(user.admin?' <small>Admin</small>':'')+(user.playerNumber===undefined?'':'<small class="profile-number">#'+user.playerNumber+'</small>')+(user.displayName?'<small>'+safe(user.displayName)+'</small>':'')+(user.country?'<small>'+flag(user.country)+'</small>':'')+'</div>'+
+        '<div>'+signUpMethods[user.registeredWith]+(user.registeredWith!=='email'&&user.emailLinked?' · Email linked':'')+'<small>'+safe(date)+'</small></div>'+
+        '<div><b>'+user.gamesPlayed.toLocaleString()+(user.totalIsMinimum?'+':'')+'</b> online games<small>'+user.ratedGames.toLocaleString()+' rated</small></div></li>'
+    }
+    if(!after){
+      list.replaceChildren()
+      const internal=node.querySelector<HTMLElement>('.admin-internal')!
+      internal.querySelector('ul')!.innerHTML=page.internal.map(row).join('')
+      internal.hidden=page.internal.length===0
+    }
+    list.insertAdjacentHTML('beforeend',page.users.map(row).join(''))
     more.dataset.query=query
     more.dataset.cursor=page.next??''
     more.hidden=!page.next
     const shown=list.childElementCount
-    notice.textContent=shown?shown+(shown===1?' user shown':' users shown'):query?'No matching users.':'No registered users yet.'
+    notice.textContent=shown?shown+(shown===1?' player shown':' players shown'):query?'No matching users.':'No registered users yet.'
   }catch(e){notice.textContent=(e as Error).message}
   finally{
     delete node.dataset.loading
@@ -1192,7 +1386,7 @@ async function findPlayers(form:HTMLFormElement){
   const message=$('#friends-status')
   const submit=form.querySelector('button')!
   if(!node||!message||submit.disabled)return
-  if(!validHandle(query)){message.textContent='Enter at least three characters of a username.';return}
+  if(!validHandle(query)&&!validPlayerNumber(query)){message.textContent='Enter a username or an ID like #12.';return}
   submit.disabled=true;message.textContent='Searching…'
   try{
     const cards=await api<PlayerCard[]>('players?q='+encodeURIComponent(query))
@@ -1229,7 +1423,8 @@ async function friendAction(button:HTMLButtonElement){
 }
 async function handle(action:string){
   switch(action){
-    case 'home':goHome();return
+    case 'home':if((mode==='home'||mode==='account'||mode==='bot-picker')&&canResume())await resumeGame();else goHome();return
+    case 'resume-game':await resumeGame();return
     case 'live-tab':playTab='live';history.replaceState({},'','/');render();return
     case 'daily-tab':await openDaily();return
     case 'daily-find':await dailyAction('find');return
@@ -1248,24 +1443,26 @@ async function handle(action:string){
       return
     }
     case 'edit-profile':if(myProfile)modal(profileEditor(myProfile),'profile-edit');return
+    case 'private-profile':modal('<h2>This profile is private.</h2>');return
     case 'opponent-profile':if(id)showPlayer(await api<PlayerCard>('room/'+id+'/player'));return
     case 'logout':await api('auth/logout',{});location.assign('/');return
-    case 'local':case 'tutorial':local(action);return
-    case 'bot':botSetup();return
+    case 'local':case 'tutorial':if(canResume())await resumeGame();else local(action);return
+    case 'bot':openBotPicker();return
     case 'sign-in':signIn();return
     case 'email-confirm':await finishEmail();return
     case 'link-email':linkEmail();return
     case 'passkey-login':await passkey('login');return
-    case 'restart':local(mode,m?.control,quickBot);return
+    case 'restart':local(mode,m?.control,quickBot,mode==='bot'?practicePuzzle:undefined,playingScientist);return
     case 'result':showResult();return
     case 'review-result':
       review=Math.max(0,(m?.log.length??1)-1);selected=null;absolve=false;tab='Moves';render();return
-    case 'queue':await search();return
+    case 'queue':if(canResume())await resumeGame();else await search();return
     case 'game-details':$('#match-details')?.scrollIntoView({block:'start'});return
     case 'game-board':$('.game-board-area')?.scrollIntoView({block:'start'});return
     case 'queue-again':goHome();rated=true;await search();return
     case 'cancel':await cancel();return
     case 'friend':{
+      if(canResume()){await resumeGame();return}
       await login();const result=await api<{id:string}>('rooms',mode==='online'&&m?m.control:presets[choice]);await online(result.id);return
     }
     case 'conduct':
@@ -1311,6 +1508,32 @@ async function handle(action:string){
 function unlockAudio(){
   if(prefs.volume&&typeof AudioContext!=='undefined'){audio??=new AudioContext();void audio.resume().catch(()=>{})}
 }
+root.addEventListener('change',event=>{
+  const field=event.target
+  if(!(field instanceof HTMLSelectElement)||field.form?.id!=='bot-form')return
+  if(field.name==='clock')pickerClock=Number(field.value)
+  if(field.name==='color'){
+    pickerColor=field.value as typeof pickerColor
+    render()
+    document.querySelector<HTMLElement>('#bot-form [name=color]')?.focus()
+  }
+})
+root.addEventListener('input',event=>{
+  const field=event.target
+  if(field instanceof HTMLInputElement&&field.form?.id==='bot-form'&&field.name==='level'){
+    pickerElo=field.valueAsNumber
+    $('.scientist-selection p')!.textContent=pickerElo+' Elo'
+  }
+})
+root.addEventListener('click',event=>{
+  const tile=(event.target as Element).closest<HTMLButtonElement>('[data-scientist]')
+  if(!tile||tile.disabled)return
+  const id=tile.dataset.scientist
+  pickedScientist=scientistBots.find(bot=>bot.id===id&&bot.elo<=maxScientistElo)
+  render()
+  if(pickedScientist)root.querySelector<HTMLElement>('[data-scientist="'+id+'"]')?.focus({preventScroll:true})
+  else root.querySelector<HTMLElement>('#bot-form [name=level]')?.focus()
+})
 root.addEventListener('click',event=>{
   const el=(event.target as HTMLElement).closest<HTMLElement>('[data-do],[data-square],[data-control],[data-days],[data-tab],[data-promotion],[data-player],[data-friend-action]')
   if(!el)return
@@ -1370,17 +1593,32 @@ root.addEventListener('submit',event=>{
     void passkey('register',String(new FormData(form).get('handle')??''))
     return
   }
+  if(form.id==='admin-bot-game'){
+    event.preventDefault()
+    if(!session?.admin)return
+    if(canResume()){$('#exhibition-status')!.textContent='Finish your current game before starting an exhibition.';return}
+    const data=new FormData(form)
+    const white=scientistBots.find(bot=>bot.id===data.get('white')&&bot.elo<=maxScientistElo)
+    const black=scientistBots.find(bot=>bot.id===data.get('black')&&bot.elo<=maxScientistElo)
+    const control=practiceClocks[Number(data.get('clock'))]
+    if(!white||!black||!control)return
+    exhibition={white,black}
+    local('bot-exhibition',control)
+    return
+  }
   if(form.id==='bot-form'){
     event.preventDefault()
+    if(canResume()){void resumeGame();return}
     const data=new FormData(form)
-    const value=practiceLevels[Number(data.get('level'))]
     const control=practiceClocks[Number(data.get('clock'))]
-    if(!value||!control)return
-    difficulty=value
+    if(!control)return
+    botAnchors=[300,900,maxScientistElo]
+    selectedBotElo=pickedScientist?.elo??pickerElo
+    difficulty=practiceLevels[botAnchors.findIndex(anchor=>anchor>=selectedBotElo)]
     const color=data.get('color')
     human=color==='random'?(Math.random()<.5?'white':'black'):color==='black'?'black':'white'
     practiceRating=null
-    local('bot',control)
+    local('bot',control,false,undefined,pickedScientist)
     if(session?.account&&control.seconds){
       void api<ProfilePage>('profile').then(profile=>{
         if(mode==='bot'&&!quickBot&&m?.control===control){
@@ -1437,8 +1675,11 @@ root.addEventListener('drop',event=>{
 root.addEventListener('dragend',()=>{drag=null})
 const route=()=>{
   const gameId=new URLSearchParams(location.search).get('game')
+  const puzzleId=new URLSearchParams(location.search).get('practice-puzzle')
   const page=location.hash.slice(1)
   if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
+  else if(puzzleId!==null&&/^\d+$/.test(puzzleId)&&Number(puzzleId)<puzzleCount)local('bot',{seconds:0,increment:0},false,Number(puzzleId))
+  else if(page==='bots')openBotPicker()
   else if(['profile','friends','admin','stats','watch','leaders','distribution'].includes(page))void account(page).catch(e=>$('#account')?.replaceChildren(e.message))
   else if(location.hash==='#daily')void openDaily().catch(e=>$('#daily-status')?.replaceChildren(e.message))
   else if(mode!=='home'||!root.hasChildNodes()){
@@ -1455,7 +1696,14 @@ if(link&&/^[a-f0-9]{64}$/.test(link)){
   history.replaceState({},'',location.pathname+location.search)
   void emailRedeem()
 }
-void login().then(()=>{if(mode==='home'&&!queue&&!$<HTMLDialogElement>('#modal')?.open)render()}).catch(()=>{})
+void login().then(async()=>{
+  const room=stored<string>(savedRoom)
+  if(mode==='home'&&room&&/^[a-f0-9]{32}$/.test(room)){
+    const check=await api<{resumable:boolean}>('room/'+room+'/resume-status').catch(()=>null)
+    if(check&&!check.resumable&&stored<string>(savedRoom)===room)remember(savedRoom,null)
+  }
+  if(mode==='home'&&!queue&&!$<HTMLDialogElement>('#modal')?.open)render()
+}).catch(()=>{})
 window.setInterval(()=>{
   const count=$('#online-count')
   if(count)count.textContent=activityLabel()

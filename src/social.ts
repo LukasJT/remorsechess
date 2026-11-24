@@ -17,8 +17,11 @@ export const emptyDetails:ProfileDetails={displayName:'',country:'',bio:''}
 
 export type FriendStatus='incoming'|'outgoing'|'friend'
 export type FriendAction='add'|'accept'|'decline'|'cancel'|'remove'
-export type PlayerCard=ProfileDetails&{handle:string;status?:FriendStatus;online?:boolean}
+export type PlayerCard=ProfileDetails&{handle:string;playerNumber?:number;status?:FriendStatus;online?:boolean}
 export type FriendList={friends:PlayerCard[];incoming:PlayerCard[];outgoing:PlayerCard[]}
+
+export const validPlayerNumber=(value:unknown):value is string=>
+  typeof value==='string'&&/^#[1-9][0-9]{0,15}$/.test(value)&&Number.isSafeInteger(Number(value.slice(1)))
 
 export const validHandle=(value:unknown):value is string=>typeof value==='string'&&/^[a-z0-9_-]{3,39}$/i.test(value)
 
