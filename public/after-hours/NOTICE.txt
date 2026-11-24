@@ -1,0 +1,4 @@
+The engraved chess pieces are Sam Trenholme's Tepoztlan chess artwork.
+Source and license: https://github.com/samboy/ChessGraphics/tree/main/Tepoztlan
+
+The horse artwork is carried over from the approved Remorse Chess After Hours design.

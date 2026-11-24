@@ -3,6 +3,9 @@ import {puzzleAt,puzzleCount} from './puzzle-book.ts'
 import {queueHandle,thinkTime} from './queue-opponent.ts'
 import {ratingDistribution,referenceCounts,referenceDate,referenceSource,type LivePool} from './rating-reference.ts'
 import './style.css'
+import './after-hours.css'
+import {engravedPiece} from './piece-art.ts'
+import {replayStudy} from './openings.ts'
 import {homeGuide} from './home-guide.ts'
 import {at,file,rank,name,legal,initial,play,moodNames,inCheck,opposite,bonusIsRequired,CURRENT_RULES,type Game,type Action,type Side,type Kind,type Piece,type RulesVersion} from './rules.ts'
 import {command,dailyDays,makeMatch,end,expire,remaining,presets,type Match,type Control,type Command,type DailyLobby} from './match.ts'
@@ -24,36 +27,8 @@ const pixels={
   k:['    #    ','   ###   ','    #    ',' ## # ## ','#########',' ####### ','  #####  ',' ####### ','#########'],
 }
 const sprites=new Map<string,string>()
-function classicPawn(side:Side){
-  const key='classic-pawn-'+side
-  if(!sprites.has(key)){
-    const canvas=document.createElement('canvas')
-    canvas.width=128;canvas.height=128
-    const context=canvas.getContext('2d')!
-    context.scale(2,2)
-    const outline=new Path2D('M24 23 C14 13 21 4 32 4 C43 4 50 13 40 23 L43 25 Q46 29 42 33 L39 34 C39 41 44 47 51 50 Q55 52 55 56 L55 59 L9 59 L9 56 Q9 52 13 50 C20 47 25 41 25 34 L22 33 Q18 29 21 25 Z')
-    const fill=context.createLinearGradient(22,8,40,60)
-    fill.addColorStop(0,side==='white'?'#fff5d3':'#644d67')
-    fill.addColorStop(1,side==='white'?'#e9bd81':'#332239')
-    context.lineJoin='round'
-    context.lineWidth=3
-    context.strokeStyle='#251925'
-    context.fillStyle=fill
-    context.fill(outline)
-    context.stroke(outline)
-    context.lineWidth=1.55
-    context.lineCap='round'
-    context.strokeStyle=side==='white'?'#fff7df':'#9c7a99'
-    context.stroke(new Path2D('M25 13 Q27 8 33 8 M23 29 H41 M14 54 H50'))
-    sprites.set(key,canvas.toDataURL())
-  }
-  return '<img class="classic-pawn" draggable="false" alt="" src="'+sprites.get(key)+'">'
-}
 function art(kind:Kind,side:Side){
-  if(prefs.pieces==='classic'){
-    if(kind==='p')return classicPawn(side)
-    return {n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'}[kind]
-  }
+  if(prefs.pieces==='classic')return engravedPiece(kind,side)
   const key=kind+side
   if(!sprites.has(key)){
     const canvas=document.createElement('canvas')
@@ -175,7 +150,7 @@ function clocks(indices:number[],showPool=true){
   return indices.map(i=>'<button data-control="'+i+'" aria-pressed="'+(!flexible&&choice===i)+'" '+(queue?'disabled':'')+'><b>'+clockLabel(presets[i])+'</b>'+
     (showPool?'<small>'+(presets[i].seconds?pool(presets[i].seconds,presets[i].increment):'Untimed')+'</small>':'')+'</button>').join('')
 }
-const liveGroups=[['Bullet',[12,0,1,2]],['Blitz',[3,4,5,6]],['Rapid',[7,8,9,10]]] as const
+const liveGroups=[['Bullet',[12,0,1,2],'bullet'],['Blitz',[3,4,5,6],'blitz'],['Rapid',[7,8,9,10],'clock']] as const
 const activityClock=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Toronto',weekday:'short',hour:'numeric',minute:'numeric',hourCycle:'h23'})
 const hourlyActivity=[62,49,47,42,39,44,54,68,93,115,134,155,180,202,217,241,266,292,318,337,344,311,235,134]
 const activityNumber=new Intl.NumberFormat()
@@ -204,12 +179,12 @@ function connectPresence(){
 function livePanel(){
   return '<div class="queue-preference"><button data-do="quick-clock" aria-controls="clock-groups" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button>'+
     (flexible&&!queue?'<small class="clock-toggle-hint">Tap again to choose a fixed clock.</small>':'')+'</div>'+
-    '<div id="clock-groups" class="clock-groups'+(flexible?' flexible-clock':'')+'">'+liveGroups.map(([label,indices])=>'<section><h3>'+label+'</h3><div class="clocks">'+clocks([...indices],false)+'</div></section>').join('')+'</div>'+
+    '<div id="clock-groups" class="clock-groups'+(flexible?' flexible-clock':'')+'">'+liveGroups.map(([label,indices,icon])=>'<section><h3>'+navIcon(icon)+label+'</h3><div class="clocks">'+clocks([...indices],false)+'</div></section>').join('')+'</div>'+
     button('more','Custom clock & untimed','link')+
     (!flexible&&(choice===11||choice>=13)?'<small>Selected: '+(presets[choice].seconds?clockLabel(presets[choice]):'Untimed')+'</small>':'')+
     (session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+
     button(queue?'cancel':'queue',queue?'Cancel search':rated?'Find ranked match':flexible?'Quick match':'Find match','primary full')+
-    '<div class="alt">'+button('friend','Play a friend')+button('local','Same computer')+button('bot','Practice vs bot')+button('watch','Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p>'
+    '<div class="alt launch-actions">'+button('friend','<span>'+navIcon('friends')+'</span>Play a friend')+button('local','<span>'+navIcon('openings')+'</span>Same computer')+button('bot','<span>'+navIcon('bot')+'</span>Practice vs bot')+button('watch','<span>'+navIcon('watch')+'</span>Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p>'
 }
 function dailyList(){
   if(!session?.account)return ''
@@ -225,14 +200,29 @@ function dailyPanel(){
     (session?.account?'<div class="alt">'+button('daily-find','Find a random opponent','primary',dailyBusy)+button('daily-invite','Invite a friend','',dailyBusy)+'</div>':button('sign-in','Sign in to play Daily','primary full'))+
     '<p id="daily-status" role="status">'+safe(dailyMessage)+'</p><div id="daily-list">'+dailyList()+'</div>'
 }
+const landingPosition=replayStudy('e2e4 e7e5 b1c3 b8c6 g1f3 d7d5',4)
+function landingBoard(){
+  const tiles=grid.map((sq,i)=>{
+    const piece=at(landingPosition,sq)
+    const accent=sq===18?' selected':sq===35?' landing-capture':''
+    return '<span class="sq '+((file(sq)+rank(sq))%2?'light':'dark')+accent+'">'+
+      (prefs.coords&&i%8===0?'<span class="rank">'+(rank(sq)+1)+'</span>':'')+
+      (prefs.coords&&i>=56?'<span class="file">'+'abcdefgh'[file(sq)]+'</span>':'')+
+      (piece?'<span class="piece '+piece.side+'">'+art(piece.kind,piece.side)+'</span>':'')+'</span>'
+  }).join('')
+  return '<section class="landing-position" aria-labelledby="landing-position-title"><div class="landing-position-head"><h2 id="landing-position-title">First capture</h2><span>White to move</span></div>'+
+    '<div class="board '+prefs.theme+'" role="img" aria-label="The white knight on c3 can capture the black pawn on d5.">'+tiles+'</div>'+
+    '<p class="landing-position-note">'+navIcon('dice')+'<span><b>c3 to d5</b> · This capture would trigger the knight’s first roll.</span></p></section>'
+}
 function home(){
-  const hero='<section class="hero"><span class="eyebrow">A CHESS VARIANT</span><h1>REMORSE<br><em>CHESS</em></h1><p class="sub">Every capture has consequences.</p><p>Remorse Chess is the chess variant <a href="/history/">from TikTok</a> where each piece rolls a die after its first capture. A piece can freeze, lose the ability to capture, or earn a second move. Play online here or <a href="/rules/">learn the rules</a>.</p>'+
-    '<a class="link hero-rules" href="#how-to-play">How to play ↓</a>'+button('tutorial','▶ Try the tutorial','link')+'</section>'
-  const play='<section class="panel launch"><h2>♜ PLAY <span id="online-count">'+activityLabel()+'</span></h2><div class="pad">'+
-    '<div class="play-tabs" role="group" aria-label="Play mode"><button data-do="live-tab" aria-pressed="'+(playTab==='live')+'">Live</button><button data-do="daily-tab" aria-pressed="'+(playTab==='daily')+'">Daily</button></div>'+
+  const hero='<section class="hero"><div class="hero-copy"><h1>Remorse <em>Chess</em></h1><p class="sub">Every capture has consequences.</p><p>Remorse Chess is the chess variant <a href="/history/">from TikTok</a> where each piece rolls a die after its first capture. A piece can freeze, lose the ability to capture, or earn a second move. Play online here or <a href="/rules/">learn the rules</a>.</p>'+
+    '<div class="hero-actions"><a class="link hero-rules" href="#how-to-play">How to play</a>'+button('tutorial',navIcon('play')+' Try the tutorial','link')+'</div></div>'+
+    '<div class="hero-art" aria-hidden="true"><img src="/after-hours/horse.webp" width="668" height="712" alt="" fetchpriority="high"></div></section>'
+  const play='<section class="panel launch"><h2><span>'+navIcon('rook')+' Play</span><span id="online-count">'+activityLabel()+'</span></h2><div class="pad">'+
+    '<div class="play-tabs" role="group" aria-label="Play mode"><button data-do="live-tab" aria-pressed="'+(playTab==='live')+'">'+navIcon('blitz')+'Live</button><button data-do="daily-tab" aria-pressed="'+(playTab==='daily')+'">'+navIcon('daily')+'Daily</button></div>'+
     (canResume()?button('resume-game','Resume game','primary full'):'')+(playTab==='daily'?dailyPanel():livePanel())+'</div></section>'
   const outcomes=[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')
-  return '<main class="home">'+hero+play+'<section class="outcomes">'+outcomes+'</section>'+homeGuide+'</main>'
+  return '<main class="home">'+hero+play+landingBoard()+'<section class="outcomes">'+outcomes+'</section>'+homeGuide+'</main>'
 }
 let reviewCache:{source:Match;index:number;view:Match}|null=null
 function view(){
@@ -318,10 +308,16 @@ const navIcons={
   profile:'<circle cx="12" cy="8" r="4"/><path d="M5 21v-1a7 7 0 0 1 14 0v1"/>',
   settings:'<path d="M5 6h14M5 12h14M5 18h14M9 4v4m6 2v4m-5 2v4"/>',
   menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+  rook:'<path d="M5 3h3v4h2V3h4v4h2V3h3v6l-3 2v5l2 2v3H6v-3l2-2v-5L5 9zM8 11h8M6 18h12"/>',
+  bullet:'<path d="M10 13c0-4 5-8 10-9-1 5-5 10-9 10Zm0 0-3 4m1-5-4 4m7-1-3 5"/>',
+  blitz:'<path d="m14 2-9 12h6l-1 8 9-12h-6z"/>',
+  clock:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M10 2h4m4 4 2-2"/>',
+  dice:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h.01m8 0h.01m-4 4h.01m-4 4h.01m8 0h.01" stroke-width="3"/>',
+  puzzles:'<path d="M4 4h6v2a2 2 0 1 0 4 0V4h6v6h-2a2 2 0 0 0 0 4h2v6h-6v-2a2 2 0 0 0-4 0v2H4v-6h2a2 2 0 0 0 0-4H4z"/>',
 }
 const navIcon=(key:keyof typeof navIcons)=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+navIcons[key]+'</svg>'
 function siteNavigation(){
-  const current=mode==='home'?(playTab==='daily'?'daily-tab':'home'):mode==='account'?accountTab:''
+  const current=mode==='home'?(playTab==='daily'?'daily-tab':'home'):mode==='account'?accountTab:mode==='bot-picker'?'bot':''
   const item=(icon:keyof typeof navIcons,label:string,action?:string,href?:string)=>{
     const active=action!==undefined&&current===action?' aria-current="page"':''
     const content=navIcon(icon)+'<span>'+label+'</span>'
@@ -331,7 +327,7 @@ function siteNavigation(){
   return '<nav id="site-nav" aria-label="Main navigation"><div class="site-nav-group" role="group" aria-label="Play">'+
     item('play','Play','home','/')+item('daily','Daily games','daily-tab','/#daily')+item('bot','Practice vs bot','bot','/#bots')+
     item('watch','Watch','watch','/#watch')+'</div><div class="site-nav-group" role="group" aria-label="Learn">'+
-    item('study','Puzzles',undefined,'/puzzles/')+item('openings','Openings',undefined,'/openings/')+item('study','Study',undefined,'/study/')+item('rules','Rules',undefined,'/rules/')+
+    item('puzzles','Puzzles',undefined,'/puzzles/')+item('openings','Openings',undefined,'/openings/')+item('study','Study',undefined,'/study/')+item('rules','Rules',undefined,'/rules/')+
     '</div><div class="site-nav-group" role="group" aria-label="Community and account">'+item('ratings','Ratings','leaders','/#leaders')+
     (session?.account?item('ratings','Rating history','stats','/#stats'):'')+item('friends','Friends','friends','/#friends')+
     (session?.account?item('profile','Profile','profile','/#profile'):session?.passkeys?item('profile','Sign in','sign-in'):
@@ -353,7 +349,7 @@ function render(){
   const logScroll=oldLog?.dataset.tab===tab&&oldLog.clientHeight?
     {top:oldLog.scrollTop,atEnd:oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<24}:null
   root.innerHTML='<header class="site-bar"><button type="button" id="site-menu" data-do="site-menu" aria-controls="site-nav" aria-expanded="false">'+
-    navIcon('menu')+'<span>Menu</span></button><a href="/" class="logo" data-do="home">☠ REMORSE<span>CHESS</span></a></header>'+
+    navIcon('menu')+'<span>Menu</span></button><a href="/" class="logo" data-do="home"><img src="/after-hours/horse-icon.webp" width="44" height="47" alt=""><b>Remorse <span>Chess</span></b></a></header>'+
     siteNavigation()+(mode==='home'?home():mode==='bot-picker'?botPicker():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+
     '" id="account" data-page="'+safe(accountTab)+'">Loading…</main>':game())+
     '<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
@@ -1249,7 +1245,9 @@ async function account(which:string){
   history.replaceState({},'', ['profile','friends','admin','stats','watch','leaders','distribution'].includes(which)?'/#'+which:'/')
   if(which==='watch'){
     const games=await api<{id:string;white:string;black:string;control:Control;rated:boolean}[]>('watch')
-    if(node.isConnected)node.innerHTML='<h1>Watch live games</h1>'+(games.length?'<ul>'+games.map(g=>'<li><a href="/?game='+safe(g.id)+'">'+safe(g.white)+' vs '+safe(g.black)+'</a> · '+clockLabel(g.control)+(g.rated?' · Rated':'')+'</li>').join('')+'</ul>':'<p>No public games are in progress.</p>')
+    if(node.isConnected)node.innerHTML='<h1>Watch live games</h1>'+
+      (games.length?'<ul class="watch-list">'+games.map(g=>'<li><a href="/?game='+safe(g.id)+'"><span class="watch-match">'+safe(g.white)+' vs '+safe(g.black)+'</span><small>'+clockLabel(g.control)+(g.rated?' · Rated':'')+'</small></a></li>').join('')+'</ul>':'<p>No public games are in progress.</p>')+
+      (user.account?'<p class="watch-archive">Find your completed ranked games in <a href="/#stats">Rating history</a>.</p>':'')
   }else if(which==='distribution'){
     await openDistribution(node)
   }else if(which==='stats'){
@@ -1431,7 +1429,7 @@ async function handle(action:string){
     case 'daily-invite':await dailyAction('invite');return
     case 'daily-cancel':await dailyAction('cancel');return
     case 'rules':modal('<h2>How to play</h2>'+rulesText(mode==='home'||mode==='account'?undefined:m?.game.rulesVersion)+button('tutorial','Try the tutorial','primary'));return
-    case 'about':modal('<h2>About & privacy</h2><p>Remorse Chess uses cookies to keep your online seat. Game links can be viewed by anyone with the link. Ranked accounts store your player name, passkey public key or verified email record, rating and game history. Signed-in players can see your profile details, and accepted friends can see when you are online. When enabled, the sponsor banner is provided by Adsterra and connects to its ad network.</p><p>The board uses chess symbols and original pixel sprites. Game sounds are synthesized.</p><a href="https://github.com/LukasJT/remorsechess">Source & feedback</a>');return
+    case 'about':modal('<h2>About & privacy</h2><p>Remorse Chess uses cookies to keep your online seat. Game links can be viewed by anyone with the link. Ranked accounts store your player name, passkey public key or verified email record, rating and game history. Signed-in players can see your profile details, and accepted friends can see when you are online. When enabled, the sponsor banner is provided by Adsterra and connects to its ad network.</p><p>The board uses engraved chess pieces and original pixel sprites. Game sounds are synthesized.</p><a href="https://github.com/LukasJT/remorsechess">Source & feedback</a>');return
     case 'settings':settings();return
     case 'quiet':prefs={...prefs,volume:0,blood:'off',shake:false,flash:false,motion:true};savePrefs();render();return
     case 'more':if(!queue)clocksDialog();return

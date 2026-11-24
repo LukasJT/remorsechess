@@ -1,9 +1,11 @@
-.study-board { display:grid; grid-template-columns:repeat(8,1fr); width:min(100%,32rem); border:2px solid #906974; }
+.study-board { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); width:min(100%,36rem); border:6px solid #5e476e; border-radius:5px; box-shadow:0 0 0 1px #b295bd,0 5px #170f21; }
 .study-board button { display:grid; place-items:center; padding:0; border:0; border-radius:0; aspect-ratio:1; color:#281924; font-size:clamp(1.15rem,6vw,2.75rem); line-height:1; font-family:system-ui,sans-serif; }
-.study-board .light { background:#f3d8aa; }
-.study-board .dark { background:#bd8879; }
+.study-board .light { background:#e0cde4; }
+.study-board .dark { background:#89749f; }
+.study-board .engraved-piece { display:block; width:88%; height:88%; object-fit:contain; pointer-events:none; }
 .study-board button:focus-visible, .study-board button[aria-pressed=true] { outline:3px solid #571e41; outline-offset:-3px; z-index:1; }
 .study-board [data-target] { box-shadow:inset 0 0 0 4px #4b6b42; }
 .study-controls { display:flex; flex-wrap:wrap; gap:.5rem; margin-block:.75rem; align-items:center; }
-.study-controls :is(button,select) { font:inherit; min-height:2.75rem; color:inherit; background:#35252d; border:1px solid #906974; border-radius:.3rem; padding:.35rem .65rem; }
+.study-controls :is(button,select) { font:inherit; min-height:2.75rem; color:inherit; background:#342a47; border:1px solid #8b6f95; border-radius:.36rem; padding:.35rem .65rem; }
+.study-controls button:not(:disabled):hover { background:#503b59; }
 .study-controls :disabled { opacity:.5; }

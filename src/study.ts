@@ -1,6 +1,7 @@
 import {matchingOpening,openings,replayStudy} from './openings.ts'
 import {at,captureTarget,legal,moodNames,name,play,type Action,type Game,type Side} from './rules.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
+import {engravedPiece} from './piece-art.ts'
 import './study.css'
 
 const foot=document.querySelector<HTMLInputElement>('#opening-search')
@@ -20,7 +21,6 @@ function study(root:HTMLElement,line:string){
   let difficulty:Difficulty='tactical'
   let human:Side|null=null, agent:Worker|null=null
   let positions=[replayStudy('',face)], notes=['Starting position']
-  const glyphs={white:{p:'♙',n:'♘',b:'♗',r:'♖',q:'♕',k:'♔'},black:{p:'♟',n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'}}
   const position=()=>positions.at(-1)!
   function main(next:number){
     agent?.terminate();agent=null;human=null
@@ -67,7 +67,7 @@ function study(root:HTMLElement,line:string){
       const square=flipped?7-(i%8)+Math.floor(i/8)*8:i%8+(7-Math.floor(i/8))*8
       const piece=at(game,square)
       const description=name(square)+(piece?' '+piece.side+' '+piece.kind+(piece.roll?' '+moodNames[piece.mood]:''):'')
-      return '<button type="button" data-square="'+square+'" class="'+((i%8+Math.floor(i/8))%2?'dark':'light')+'" aria-label="'+description+'" aria-pressed="'+(selected===square)+'" '+(options.some(a=>a.type!=='end'&&a.to===square)?'data-target':'')+'>'+(piece?glyphs[piece.side][piece.kind]:'')+'</button>'
+      return '<button type="button" data-square="'+square+'" class="'+((i%8+Math.floor(i/8))%2?'dark':'light')+'" aria-label="'+description+'" aria-pressed="'+(selected===square)+'" '+(options.some(a=>a.type!=='end'&&a.to===square)?'data-target':'')+'>'+(piece?engravedPiece(piece.kind,piece.side):'')+'</button>'
     })
     const continuations=actions.filter(a=>a.type!=='end'&&(game.bonus!==null||captureTarget(game,a))).slice(0,12)
     root.innerHTML='<div class="study-board" role="group" aria-label="Chessboard">'+board.join('')+'</div>'+
