@@ -7,7 +7,8 @@ import { CURRENT_RULES,type Side } from './rules.ts'
 import { chooseMove } from './bot.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
-import { digest, normalizeEmail, sendSignIn, type EmailRequest } from './email.ts'
+import { digest, normalizeEmail, sendSignIn, type EmailPurpose, type EmailRequest } from './email.ts'
+import { hashPassword, matchesPassword, validPassword, type PasswordRecord } from './password.ts'
 import { emptyDetails,maxProfileBody,parseProfileEdit,validHandle,validPlayerNumber,type FriendAction,type FriendList,type FriendStatus,type PlayerCard,type ProfileDetails,type ProfileEdit } from './social.ts'
 import type { AdminUser, AdminUsers } from './admin.ts'
 
@@ -469,8 +470,12 @@ export class Lobby extends DurableObject<Env> {
     })
   }
   async session(id:string) {
-    const entry=await this.ctx.storage.get<{user:Identity;expires:number}>('session/'+id)
+    const entry=await this.ctx.storage.get<{user:Identity;expires:number;passwordSalt?:string}>('session/'+id)
     if(!entry || entry.expires<=Date.now()) return
+    if(entry.passwordSalt){
+      const password=await this.ctx.storage.get<PasswordRecord>('password/'+entry.user.id)
+      if(password?.salt!==entry.passwordSalt)return
+    }
     return entry.user
   }
   private async assignPlayerNumber(txn:DurableObjectTransaction,id:string,handle?:string){
@@ -583,6 +588,8 @@ export class Lobby extends DurableObject<Env> {
   }
   async reserveEmail(request:EmailRequest){
     return this.ctx.storage.transaction(async txn=>{
+      if((request.purpose==='reset'||request.purpose==='sign-in')&&!await txn.get('email-account/'+request.mailbox))
+        return 'unknown'
       const now=Date.now()
       const mailbox='mailbox/'+request.mailbox
       const previous=await txn.get<{hash:string;sent:number}>(mailbox)
@@ -607,17 +614,39 @@ export class Lobby extends DurableObject<Env> {
   async inspectEmail(hash:string,viewer:Identity|undefined){
     const link=await this.ctx.storage.get<EmailRequest>('email-link/'+hash)
     if(!link||link.expires<=Date.now())return {expired:true}
-    if(!link.owner)return {kind:'sign-in'}
+    if(!link.owner){
+      const user=await this.ctx.storage.get<Identity>('email-account/'+link.mailbox)
+      return {kind:link.purpose==='reset'?'reset':user?'sign-in':'signup',
+        switchRequired:Boolean(viewer&&viewer.id!==user?.id)}
+    }
     const ownerName=link.ownerName??(viewer?.id===link.owner?viewer.name:undefined)
     if(!ownerName)return {legacy:true}
     return {kind:'link',accountName:ownerName,switchRequired:Boolean(viewer&&viewer.id!==link.owner)}
   }
-  async redeemEmail(hash:string,handle:string|null,owner:Identity|undefined,sessionID:string){
+  async authenticatePassword(mailbox:string,password:string,sessionID:string){
+    const index='email-account/'+mailbox
+    const user=await this.ctx.storage.get<Identity>(index)
+    const key='password/'+user?.id
+    const record=user?await this.ctx.storage.get<PasswordRecord>(key):undefined
+    if(!await matchesPassword(password,record)||!user||!record)return false
     return this.ctx.storage.transaction(async txn=>{
-      const key='email-link/'+hash
+      if((await txn.get<Identity>(index))?.id!==user.id||
+        (await txn.get<PasswordRecord>(key))?.salt!==record.salt)return false
+      await txn.put('session/'+sessionID,{user,passwordSalt:record.salt,expires:Date.now()+7*86400_000})
+      return true
+    })
+  }
+  async redeemEmail(hash:string,handle:string|null,password:string|undefined,owner:Identity|undefined,sessionID:string){
+    const key='email-link/'+hash
+    const pending=await this.ctx.storage.get<EmailRequest>(key)
+    if(!pending||pending.expires<=Date.now())return 'expired'
+    const index='email-account/'+pending.mailbox
+    const existing=await this.ctx.storage.get<Identity>(index)
+    const needsPassword=pending.purpose==='reset'||(!pending.owner&&!existing&&pending.purpose!=='sign-in')
+    const credential=needsPassword&&password?await hashPassword(password):undefined
+    return this.ctx.storage.transaction(async txn=>{
       const link=await txn.get<EmailRequest>(key)
       if(!link||link.expires<=Date.now()){if(link)await txn.delete(key);return 'expired'}
-      const index='email-account/'+link.mailbox
       let user=await txn.get<Identity>(index)
       if(link.owner){
         // A linking request comes from a signed-in account. The emailed token then proves mailbox access.
@@ -627,8 +656,11 @@ export class Lobby extends DurableObject<Env> {
         if(user&&user.id!==target.id)return 'linked'
         user=target
       }else if(owner&&owner.id!==user?.id)return 'sign-out'
+      if(!user&&(link.purpose==='reset'||link.purpose==='sign-in'))return 'expired'
+      const setPassword=!user||link.purpose==='reset'
       if(!user){
         if(!handle)return 'name'
+        if(!credential)return 'password'
         const handleKey='handle/'+handle.toLowerCase()
         if(await txn.get(handleKey))return 'taken'
         user={id:'email:'+token(),name:handle,account:true}
@@ -636,9 +668,13 @@ export class Lobby extends DurableObject<Env> {
         await txn.put(handleKey,user.id)
         await txn.put(createdKey(user.id),Date.now())
       }
+      if(setPassword){
+        if(!credential)return 'password'
+        await txn.put('password/'+user.id,credential)
+      }
       await txn.put(index,user)
       await txn.put(emailOwnerKey(user.id),true)
-      await txn.put('session/'+sessionID,{user,expires:Date.now()+7*86400_000})
+      await txn.put('session/'+sessionID,{user,passwordSalt:setPassword?credential?.salt:undefined,expires:Date.now()+7*86400_000})
       await txn.delete(key)
       return 'ok'
     })
@@ -1176,27 +1212,50 @@ export default {
       }
       return problem('Not found',404)
     }
-    const emailReady=Boolean(env.RESEND_API_KEY&&url.hostname==='remorsechess.com')
+    const passwordReady=url.hostname==='remorsechess.com'
+    const emailReady=Boolean(env.RESEND_API_KEY&&passwordReady)
     if(endpoint.startsWith('auth/email/')&&req.method==='POST'){
-      if(!emailReady||!guestValid)return problem('Email sign-in is unavailable here',503)
+      const passwordLogin=endpoint==='auth/email/password'
+      if(!(passwordLogin?passwordReady:emailReady)||!guestValid)return problem('Email sign-in is unavailable here',503)
       if(Number(req.headers.get('content-length')??0)>4096)return problem('Request is too large',413)
       const input=await req.json<Record<string,unknown>>().catch(()=>null)
       if(!input||typeof input!=='object')return problem('Invalid request')
       const store=lobby(env)
+      if(passwordLogin){
+        if(profile)return problem('Sign out before signing in to a different account.',409)
+        const email=normalizeEmail(input.email)
+        const password=input.password
+        if(!email||!validPassword(password))return problem('Email or password is incorrect.',401)
+        const mailbox=await digest(email)
+        const limits=[env.EMAIL_LIMIT.limit({key:'password-mailbox/'+mailbox})]
+        if(ip)limits.push(env.EMAIL_LIMIT.limit({key:'password-ip/'+ip}))
+        if((await Promise.all(limits)).some(result=>!result.success))
+          return problem('Too many password attempts. Wait a minute or use an email link.',429)
+        const sessionID=token()
+        if(!await store.authenticatePassword(mailbox,password,sessionID))
+          return problem('Email or password is incorrect.',401)
+        const response=json({ok:true})
+        response.headers.append('set-cookie',setCookie(req,'remorse_account',sessionID,86400*7))
+        return response
+      }
       if(endpoint==='auth/email/start'){
         const email=normalizeEmail(input.email)
         if(!email)return problem('Enter a valid email address.')
         const linking=input.link===true
-        if(linking!==Boolean(profile))return problem('Sign in to link an email, or sign out to use a different account.',409)
+        const purpose:EmailPurpose|undefined=input.purpose==='signup'||input.purpose==='reset'||input.purpose==='sign-in'?input.purpose:undefined
+        if((linking&&!profile)||(!linking&&profile&&purpose!=='reset')||(linking&&purpose))
+          return problem('Sign in to link an email, or sign out to use a different account.',409)
         if(ip&&!(await env.EMAIL_LIMIT.limit({key:ip})).success)return problem('Too many sign-in emails. Wait a minute and try again.',429)
         const code=token()+token()
         const hash=await digest(code)
         const mailbox=await digest(email)
-        const reserved=await store.reserveEmail({hash,mailbox,owner:profile?.id,ownerName:profile?.name,expires:Date.now()+900_000})
+        const account=linking?profile:undefined
+        const reserved=await store.reserveEmail({hash,mailbox,purpose,owner:account?.id,ownerName:account?.name,expires:Date.now()+900_000})
+        if(reserved==='unknown'||(reserved==='cooldown'&&(purpose==='reset'||purpose==='sign-in')))return json({ok:true})
         if(reserved==='cooldown')return problem('Wait one minute before requesting a new link.',429)
         if(reserved==='quota')return problem('Email sign-in is at its daily limit. Try again tomorrow.',429)
         const target=url.origin+'/#email='+code
-        const sent=await sendSignIn(env.RESEND_API_KEY!,email,target,hash,profile?.name).catch(()=>null)
+        const sent=await sendSignIn(env.RESEND_API_KEY!,email,target,hash,purpose,account?.name).catch(()=>null)
         if(!sent?.ok){
           console.warn('Sign-in email could not be accepted',{status:sent?.status??0})
           await store.discardEmail(hash,mailbox)
@@ -1216,9 +1275,12 @@ export default {
         }
         const handle=accountName(input.name)
         if(input.name!==undefined&&!handle)return problem('Use 3–20 letters, numbers, underscores or hyphens.')
+        const password=input.password
+        if(password!==undefined&&!validPassword(password))return problem('Use a password of at least 15 characters.')
         const sessionID=token()
-        const outcome=await store.redeemEmail(hash,handle,profile,sessionID)
+        const outcome=await store.redeemEmail(hash,handle,typeof password==='string'?password:undefined,profile,sessionID)
         if(outcome==='name')return json({needsName:true})
+        if(outcome==='password')return problem('Choose a password to continue.')
         if(outcome==='taken')return problem('That player name is already in use.',409)
         if(outcome==='legacy')return problem('Request a new link to verify your email on another device.',403)
         if(outcome==='linked')return problem('This email is attached to another account.',409)
@@ -1234,7 +1296,7 @@ export default {
       const [emailLinked,admin]=profile
         ?await Promise.all([lobby(env).hasEmail(profile.id),lobby(env).isAdmin(profile.id)])
         :[false,false]
-      const resp=json({name:player.name,account:player.account,signIn,passkeys,emailReady,emailLinked,admin})
+      const resp=json({name:player.name,account:player.account,signIn,passkeys,emailReady,emailLinked,passwordReady,admin})
       if(!guestValid) resp.headers.append('set-cookie',setCookie(req,'remorse_guest',guest,86400*30))
       return resp
     }

@@ -422,3 +422,7 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
   .bot-lab-roster { padding: 12px; }
 }
 .admin-exhibition { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.auth-form { display: grid; gap: 10px; margin-bottom: 12px; }
+.auth-form label { display: grid; gap: 4px; }
+.auth-form input { width: 100%; }
+.auth-form p { margin: 0; }

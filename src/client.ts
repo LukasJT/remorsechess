@@ -60,7 +60,7 @@ function rulesText(version:RulesVersion=CURRENT_RULES){
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:true,moodMotion:true}
 let prefs={...defaults};try{prefs={...prefs,...JSON.parse(localStorage.getItem('remorse-settings')??'{}')}}catch{}
 type Snapshot={room:{white?:string;black?:string;whiteAccount?:boolean;blackAccount?:boolean;open:boolean;rated:boolean;bot?:Side;control:Control;ratingPool?:string|null;countries?:Partial<Record<Side,string>>;nameplates?:Partial<Record<Side,number|null>>};seat:Side|null;match:Match;now:number;ratingImpact?:RatingImpact}
-type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean;admin:boolean}
+type Session={name:string;account:boolean;signIn:boolean;passkeys:boolean;emailReady:boolean;emailLinked:boolean;passwordReady:boolean;admin:boolean}
 type SearchTicket=Control&{rated:boolean;flexible:boolean;searchId:string}
 let session:Session|null=null
 let mode='home', m:Match|null=null, selected:number|null=null, absolve=false, flipped=false, tab='Moves', status=''
@@ -977,17 +977,43 @@ function botPicker(){
     '<button class="primary full">'+(canResume()?'Resume current game':'Play '+(picked?.label??'custom engine'))+'</button></form></section></main>'
 }
 function signIn(){
-  modal('<h2>Sign in or create an account</h2>'+
-    (session?.emailReady?emailForm(false)+'<h3>Use a passkey instead</h3>':'<p>Use a passkey from your device or password manager. Keep it synced so you can sign in again.</p>')+
-    '<form id="passkey-register"><label>Player name <input name="handle" autocomplete="nickname" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_\\-]{3,20}"></label> <button class="primary">Create account</button></form>'+
-    button('passkey-login','Sign in with a passkey')+'<p class="auth-status" role="status" id="auth-status"></p>')
+  modal('<h2>Sign in</h2>'+
+    (session?.passwordReady?'<form id="password-login" class="auth-form">'+authEmailField()+
+      '<label>Password <input type="password" name="password" autocomplete="current-password" maxlength="256" required></label> '+
+      '<button class="primary">Sign in</button><p id="email-status" role="status"></p></form>':'')+
+    '<div class="tools">'+
+    (session?.emailReady?button('email-sign-in','Email me a sign-in link')+button('email-reset','Forgot or need a password?'):'')+
+    (session?.passkeys?button('passkey-login','Sign in with a passkey'):'')+
+    '</div><p class="auth-status" role="status" id="auth-status"></p><h3>Create an account</h3><div class="tools">'+
+    (session?.emailReady?button('email-signup','Sign up with email'):'')+
+    (session?.passkeys?button('passkey-signup','Sign up with a passkey'):'')+'</div>')
 }
 let emailCode=''
-function emailForm(link:boolean){
-  return '<form id="email-start" data-link="'+link+'"><label>Email address <input type="email" name="email" autocomplete="email" maxlength="254" required></label> <button class="primary">Email me a sign-in link</button><p id="email-status" role="status"></p></form>'
+type EmailFlow='sign-in'|'signup'|'reset'|'link'
+function authEmailField(email=''){
+  return '<label>Email address <input type="email" name="email" autocomplete="username" maxlength="254" value="'+safe(email)+'" required></label> '
+}
+function emailForm(flow:EmailFlow,label:string,email=''){
+  return '<form id="email-start" class="auth-form" data-flow="'+flow+'">'+authEmailField(email)+
+    '<button class="primary">'+label+'</button><p id="email-status" role="status"></p></form>'
+}
+function emailDialog(flow:Exclude<EmailFlow,'link'>){
+  const email=$<HTMLInputElement>('#password-login input[name="email"]')?.value
+  const details={
+    'sign-in':['Sign in with an email link','Open the link on any device to sign in.','Send sign-in link'],
+    signup:['Sign up with email','Verify your email first, then choose a player name and password.','Send verification link'],
+    reset:['Set or reset your password','We’ll email a link to choose a password for your existing account.','Send password link'],
+  }[flow]
+  modal('<h2>'+details[0]+'</h2><p>'+details[1]+'</p>'+emailForm(flow,details[2],email)+
+    (session?.account?'':button('sign-in','Back to sign in','link')))
+}
+function passkeySignup(){
+  modal('<h2>Sign up with a passkey</h2><p>Use a passkey from your device or password manager.</p>'+
+    '<form id="passkey-register" class="auth-form"><label>Player name <input name="handle" autocomplete="nickname" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_\\-]{3,20}"></label> <button class="primary">Create account</button></form>'+
+    '<p class="auth-status" role="status" id="auth-status"></p>'+button('sign-in','Back to sign in','link'))
 }
 function linkEmail(){
-  modal('<h2>Add email sign-in</h2><p>Use your email to sign back into this account and keep your rating. Open the verification link on any device.</p>'+emailForm(true))
+  modal('<h2>Add email sign-in</h2><p>Use your email to sign back into this account and keep your rating. Open the verification link on any device.</p>'+emailForm('link','Send verification link'))
 }
 async function sendEmailLink(form:HTMLFormElement){
   const statusNode=form.querySelector<HTMLElement>('#email-status')!
@@ -997,8 +1023,11 @@ async function sendEmailLink(form:HTMLFormElement){
   statusNode.textContent='Sending your link…'
   try{
     const email=String(new FormData(form).get('email')??'')
-    await api('auth/email/start',{email,link:form.dataset.link==='true'})
-    statusNode.textContent='Check '+email+' for a link. It expires in 15 minutes.'
+    const flow=form.dataset.flow as EmailFlow
+    await api('auth/email/start',{email,link:flow==='link',purpose:flow==='link'?undefined:flow})
+    statusNode.textContent=flow==='reset'||flow==='sign-in'
+      ?'If '+email+' is registered, check your inbox for a link. It expires in 15 minutes.'
+      :'Check '+email+' for a link. It expires in 15 minutes.'
   }catch(e){statusNode.textContent=e instanceof Error?e.message:'Couldn’t send the link.'}
   finally{submit.disabled=false}
 }
@@ -1008,7 +1037,7 @@ async function emailRedeem(){
   if(!pending)return
   try{
     await login()
-    const details=await api<{kind:'sign-in'|'link';accountName?:string;switchRequired?:boolean}>('auth/email/inspect',{code:emailCode})
+    const details=await api<{kind:EmailFlow;accountName?:string;switchRequired?:boolean}>('auth/email/inspect',{code:emailCode})
     if(!pending.isConnected||!$<HTMLDialogElement>('#modal')?.open)return
     if(details.kind==='link'){
       const name=safe(details.accountName)
@@ -1017,29 +1046,57 @@ async function emailRedeem(){
         :'<p>Add this email to <b>'+name+'</b> and sign in on this device. Continue only if this is your Remorse Chess account.</p>'
       modal('<h2>Verify your email</h2>'+text+
         (details.switchRequired?'':button('email-confirm','Verify and sign in','primary'))+'<p id="email-status" role="status"></p>')
-    }else modal('<h2>Continue with email</h2><p>Continue to sign in or choose a player name for your new account.</p>'+
-      button('email-confirm','Continue','primary')+'<p id="email-status" role="status"></p>')
+    }else if(details.switchRequired){
+      modal('<h2>Switch accounts</h2><p>Sign out of the current account and reopen the email link to continue.</p>'+button('logout','Sign out'))
+    }else if(details.kind==='signup'||details.kind==='reset'){
+      emailPasswordForm(details.kind)
+    }else modal('<h2>Sign in with email</h2>'+button('email-confirm','Sign in','primary')+'<p id="email-status" role="status"></p>')
   }catch(e){pending.textContent=e instanceof Error?e.message:'Couldn’t open the link.'}
 }
-async function finishEmail(name?:string){
+function emailPasswordForm(flow:'signup'|'reset'){
+  const signup=flow==='signup'
+  modal('<h2>'+(signup?'Finish creating your account':'Choose a new password')+'</h2><form id="email-finish" class="auth-form">'+
+    (signup?'<label>Player name <input name="handle" autocomplete="nickname" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_\\-]{3,20}"></label>':'')+
+    '<label>Password <input type="password" name="password" autocomplete="new-password" required minlength="15" maxlength="256" aria-describedby="password-length"></label>'+
+    '<p id="password-length">Use at least 15 characters.</p>'+
+    '<button class="primary">'+(signup?'Create account':'Save password and sign in')+'</button><p id="email-status" role="status"></p></form>')
+}
+async function completeEmailSignIn(){
+  emailCode=''
+  session=null
+  await login()
+  rated=false
+  status='Signed in. Select Ranked when you want a rated game.'
+  $<HTMLDialogElement>('#modal')?.close()
+  render()
+}
+async function passwordSignIn(form:HTMLFormElement){
+  const statusNode=form.querySelector<HTMLElement>('#email-status')!
+  const submit=form.querySelector<HTMLButtonElement>('button')!
+  if(submit.disabled)return
+  submit.disabled=true
+  statusNode.textContent='Signing in…'
+  try{
+    const data=new FormData(form)
+    await login()
+    await api('auth/email/password',{email:data.get('email'),password:data.get('password')})
+    await completeEmailSignIn()
+  }catch(e){statusNode.textContent=e instanceof Error?e.message:'Couldn’t sign in.'}
+  finally{submit.disabled=false}
+}
+async function finishEmail(name?:string,password?:string){
   const statusNode=$('#email-status')
   if(!statusNode||statusNode.dataset.busy)return
   statusNode.dataset.busy='1'
   statusNode.textContent='Checking your link…'
   try{
     await login()
-    const result=await api<{ok?:boolean;needsName?:boolean}>('auth/email/finish',{code:emailCode,name})
+    const result=await api<{ok?:boolean;needsName?:boolean}>('auth/email/finish',{code:emailCode,name,password})
     if(result.needsName){
-      modal('<h2>Choose a player name</h2><form id="email-finish"><label>Player name <input name="handle" autocomplete="nickname" required minlength="3" maxlength="20"></label> <button class="primary">Create account</button><p id="email-status" role="status"></p></form>')
+      emailPasswordForm('signup')
       return
     }
-    emailCode=''
-    session=null
-    await login()
-    rated=false
-    status='Signed in. Select Ranked when you want a rated game.'
-    $<HTMLDialogElement>('#modal')?.close()
-    render()
+    await completeEmailSignIn()
   }catch(e){statusNode.textContent=e instanceof Error?e.message:'Couldn’t use the link.'}
   finally{delete statusNode.dataset.busy}
 }
@@ -1278,7 +1335,7 @@ async function account(which:string){
     const profile=await api<ProfilePage>('profile')
     if(node.isConnected){
       myProfile=profile
-      node.innerHTML=profileView(profile,user.emailReady&&!user.emailLinked,user.admin)
+      node.innerHTML=profileView(profile,user.emailReady&&!user.emailLinked,user.admin,user.emailReady&&user.emailLinked)
     }
   }
 }
@@ -1357,7 +1414,7 @@ async function saveProfile(form:HTMLFormElement){
     $<HTMLDialogElement>('#modal')?.close()
     if(mode==='account'&&accountTab==='profile'){
       myProfile=saved
-      $('#account')!.innerHTML=profileView(saved,Boolean(session?.emailReady&&!session.emailLinked),session?.admin)+'<p role="status">Profile saved.</p>'
+      $('#account')!.innerHTML=profileView(saved,Boolean(session?.emailReady&&!session.emailLinked),session?.admin,Boolean(session?.emailReady&&session.emailLinked))+'<p role="status">Profile saved.</p>'
     }
   }catch(e){message.textContent=(e as Error).message}
   finally{submit.disabled=false}
@@ -1447,9 +1504,13 @@ async function handle(action:string){
     case 'local':case 'tutorial':if(canResume())await resumeGame();else local(action);return
     case 'bot':openBotPicker();return
     case 'sign-in':signIn();return
+    case 'email-sign-in':emailDialog('sign-in');return
+    case 'email-signup':emailDialog('signup');return
+    case 'email-reset':emailDialog('reset');return
     case 'email-confirm':await finishEmail();return
     case 'link-email':linkEmail();return
     case 'passkey-login':await passkey('login');return
+    case 'passkey-signup':passkeySignup();return
     case 'restart':local(mode,m?.control,quickBot,mode==='bot'?practicePuzzle:undefined,playingScientist);return
     case 'result':showResult();return
     case 'review-result':
@@ -1581,9 +1642,16 @@ root.addEventListener('submit',event=>{
     void sendEmailLink(form)
     return
   }
+  if(form.id==='password-login'){
+    event.preventDefault()
+    void passwordSignIn(form)
+    return
+  }
   if(form.id==='email-finish'){
     event.preventDefault()
-    void finishEmail(String(new FormData(form).get('handle')??''))
+    const data=new FormData(form)
+    const name=data.get('handle')
+    void finishEmail(typeof name==='string'?name:undefined,String(data.get('password')??''))
     return
   }
   if(form.id==='passkey-register'){
@@ -1688,12 +1756,12 @@ const route=()=>{
 }
 window.addEventListener('popstate',route)
 const link=new URLSearchParams(location.hash.slice(1)).get('email')
-route()
 if(link&&/^[a-f0-9]{64}$/.test(link)){
   emailCode=link
   history.replaceState({},'',location.pathname+location.search)
+  render()
   void emailRedeem()
-}
+}else route()
 void login().then(async()=>{
   const room=stored<string>(savedRoom)
   if(mode==='home'&&room&&/^[a-f0-9]{32}$/.test(room)){

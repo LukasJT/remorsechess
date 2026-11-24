@@ -30,7 +30,7 @@ function socialNav(current:'profile'|'friends',admin=false){
     (admin?'<a data-do="admin" href="/#admin">Users</a>':'')+'</nav>'
 }
 
-export function profileView(profile:ProfilePage,linkEmail:boolean,admin=false){
+export function profileView(profile:ProfilePage,linkEmail:boolean,admin=false,resetPassword=false){
   const card={handle:profile.handle,...profile.details}
   const ratings=['Bullet','Blitz','Rapid'].map(group=>{
     const rating=profile.ratings[group]
@@ -42,7 +42,8 @@ export function profileView(profile:ProfilePage,linkEmail:boolean,admin=false){
     numberLine(profile.playerNumber)+'<p class="profile-handle">@'+s(card.handle)+'</p>'+flag(card.country)+'</div><button class="primary" data-do="edit-profile">Edit profile</button></div>'+
     (card.bio?'<p class="profile-bio">'+s(card.bio)+'</p>':'')+'<dl class="profile-ratings">'+ratings+'</dl><a href="/#stats" data-do="stats">Rating history</a>'+
     '<h2>Game history</h2>'+(history?'<ul class="profile-history">'+history+'</ul>':'<p>No completed games yet.</p>')+
-    '<div class="tools profile-tools">'+(linkEmail?'<button data-do="link-email">Add email sign-in</button>':'')+'<button data-do="logout">Sign out</button></div>'
+    '<div class="tools profile-tools">'+(linkEmail?'<button data-do="link-email">Add email sign-in</button>':'')+
+    (resetPassword?'<button data-do="email-reset">Set or reset password</button>':'')+'<button data-do="logout">Sign out</button></div>'
 }
 
 export function profileEditor(profile:ProfilePage){
