@@ -40,7 +40,7 @@ function browser(session){
 try {
   const desktop=browser(), phone=browser(), passwordDevice=browser(), linkDevice=browser()
   for(const device of [desktop,phone,passwordDevice,linkDevice])assert.equal((await device('session')).account,false)
-  const email='signup@example.com', password='a-long-first-password', replacement='a-long-replacement-password'
+  const email='signup@example.com', password='startpass', replacement='resetpass'
   const start='auth/email/start', inspect='auth/email/inspect', finish='auth/email/finish', signIn='auth/email/password'
   const codeFor=mailbox=>mails.findLast(mail=>mail.to.includes(mailbox)).text.match(/#email=([a-f0-9]{64})/)[1]
 
@@ -49,7 +49,7 @@ try {
   assert.equal((await phone(inspect,{code:signup})).kind,'signup')
   assert.equal((await phone('session')).account,false)
   await phone(finish,{code:signup,name:'EmailPlayer'},400)
-  await phone(finish,{code:signup,name:'EmailPlayer',password:'too short'},400)
+  await phone(finish,{code:signup,name:'EmailPlayer',password:'eightchr'},400)
   await phone(finish,{code:signup,name:'EmailPlayer',password})
   const id=(await phone('profile')).user.id
   assert.equal((await phone('session')).emailLinked,true)
@@ -75,6 +75,7 @@ try {
   const reset=codeFor(email)
   assert.equal((await desktop(inspect,{code:reset})).kind,'reset')
   await desktop(finish,{code:reset},400)
+  await desktop(finish,{code:reset,password:'eightchr'},400)
   await desktop(finish,{code:reset,password:replacement})
   assert.equal((await desktop('profile')).user.id,id)
   assert.equal((await passwordDevice('session')).account,false)

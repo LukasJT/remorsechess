@@ -1,4 +1,5 @@
 export type EmailPurpose='sign-in'|'signup'|'reset'
+export const minPasswordLength=9
 export type EmailRequest={hash:string;mailbox:string;expires:number;owner?:string;ownerName?:string;purpose?:EmailPurpose}
 export function normalizeEmail(input:unknown):string|null{
   if(typeof input!=='string')return null

@@ -13,6 +13,7 @@ import {pool,countedGames,establishedRating,ratingDelta,type Rating,type RatingI
 import {difficulties,type Difficulty} from './bot-levels.ts'
 import {avatarSize,maxAvatarBytes,validHandle,validPlayerNumber,type FriendAction,type FriendList,type PlayerCard,type ProfileEdit} from './social.ts'
 import {flag,escapeHTML as safe,friendsGroups,friendsView,playerDialog,playerResults,profileEditor,profileView,type ProfilePage} from './social-view.ts'
+import {minPasswordLength} from './email.ts'
 import type {AdminUsers} from './admin.ts'
 import type {PublicKeyCredentialCreationOptionsJSON,PublicKeyCredentialRequestOptionsJSON} from '@simplewebauthn/browser'
 const root=document.querySelector<HTMLElement>('#app')!
@@ -1057,8 +1058,8 @@ function emailPasswordForm(flow:'signup'|'reset'){
   const signup=flow==='signup'
   modal('<h2>'+(signup?'Finish creating your account':'Choose a new password')+'</h2><form id="email-finish" class="auth-form">'+
     (signup?'<label>Player name <input name="handle" autocomplete="nickname" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_\\-]{3,20}"></label>':'')+
-    '<label>Password <input type="password" name="password" autocomplete="new-password" required minlength="15" maxlength="256" aria-describedby="password-length"></label>'+
-    '<p id="password-length">Use at least 15 characters.</p>'+
+    '<label>Password <input type="password" name="password" autocomplete="new-password" required minlength="'+minPasswordLength+'" maxlength="256" aria-describedby="password-length"></label>'+
+    '<p id="password-length">Use at least '+minPasswordLength+' characters.</p>'+
     '<button class="primary">'+(signup?'Create account':'Save password and sign in')+'</button><p id="email-status" role="status"></p></form>')
 }
 async function completeEmailSignIn(){

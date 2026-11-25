@@ -1,12 +1,13 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { Buffer } from 'node:buffer'
+import { minPasswordLength } from './email.ts'
 
 export type PasswordRecord = {salt:string; hash:string; algorithm:'scrypt-v1'}
 const options={N:2**15,r:8,p:3,maxmem:48*1024*1024}
 const dummy:PasswordRecord={salt:'0'.repeat(32),hash:'0'.repeat(64),algorithm:'scrypt-v1'}
 
 export function validPassword(password:unknown):password is string{
-  return typeof password==='string'&&password.length<=256&&[...password].length>=15
+  return typeof password==='string'&&password.length<=256&&[...password].length>=minPasswordLength
 }
 
 function derive(password:string,salt:string){

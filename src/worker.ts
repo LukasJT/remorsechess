@@ -7,7 +7,7 @@ import { CURRENT_RULES,type Side } from './rules.ts'
 import { chooseMove } from './bot.ts'
 import { accountName, authentication, canUsePasskeys, registration, verifyExisting, verifyNew, type Ceremony, type Passkey } from './passkeys.ts'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
-import { digest, normalizeEmail, sendSignIn, type EmailPurpose, type EmailRequest } from './email.ts'
+import { digest, minPasswordLength, normalizeEmail, sendSignIn, type EmailPurpose, type EmailRequest } from './email.ts'
 import { hashPassword, matchesPassword, validPassword, type PasswordRecord } from './password.ts'
 import { emptyDetails,maxProfileBody,parseProfileEdit,validHandle,validPlayerNumber,type FriendAction,type FriendList,type FriendStatus,type PlayerCard,type ProfileDetails,type ProfileEdit } from './social.ts'
 import type { AdminUser, AdminUsers } from './admin.ts'
@@ -1276,7 +1276,7 @@ export default {
         const handle=accountName(input.name)
         if(input.name!==undefined&&!handle)return problem('Use 3–20 letters, numbers, underscores or hyphens.')
         const password=input.password
-        if(password!==undefined&&!validPassword(password))return problem('Use a password of at least 15 characters.')
+        if(password!==undefined&&!validPassword(password))return problem('Use a password of at least '+minPasswordLength+' characters.')
         const sessionID=token()
         const outcome=await store.redeemEmail(hash,handle,typeof password==='string'?password:undefined,profile,sessionID)
         if(outcome==='name')return json({needsName:true})
