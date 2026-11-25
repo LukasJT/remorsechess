@@ -1,5 +1,7 @@
 # Remorse Chess
 
+The [iOS Xcode project and App Store screenshots](ios/README.md) are in `ios/`.
+
 An original chess variant. Every piece rolls a die the first time it captures. A capture can freeze the piece, leave it unable to capture, have no effect, or let it move twice.
 
 ## Run locally

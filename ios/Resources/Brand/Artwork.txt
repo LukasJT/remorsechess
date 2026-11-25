@@ -1,0 +1,3 @@
+The horse artwork is the Remorse Chess After Hours wordmark asset from remorsechess.com.
+The board uses Sam Trenholme’s public-domain Chess Tepoztlan art.
+https://github.com/samboy/ChessGraphics#tepoztlan
