@@ -97,8 +97,14 @@ private struct RemorseChessRoot: View {
 
             if !offline {
                 Menu {
+                    Button("Profile and game history", systemImage: "person.crop.circle") {
+                        browser.openPage("profile")
+                    }
+                    Button("Rating history", systemImage: "chart.xyaxis.line") {
+                        browser.openPage("stats")
+                    }
                     Button("Open game or email link", systemImage: "link") { showLink = true }
-                    Button("Online with a passkey", systemImage: "person.badge.key") { browser.openPasskeyBrowser() }
+                    Button("Open in Safari view", systemImage: "safari") { browser.openPasskeyBrowser() }
                     Button("Back", systemImage: "chevron.backward", action: browser.goBack)
                         .disabled(!browser.canGoBack)
                     Button("Reload", systemImage: "arrow.clockwise", action: browser.retry)
@@ -152,7 +158,7 @@ private struct RemorseChessRoot: View {
                         browser.open(url)
                         showLink = false
                     }
-                    Button("Open in passkey browser") {
+                    Button("Open in Safari view") {
                         pendingPasskeyLink = url
                         showLink = false
                     }

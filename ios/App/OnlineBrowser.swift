@@ -101,6 +101,12 @@ final class OnlineBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
         webView.load(URLRequest(url: destination))
     }
 
+    func openPage(_ fragment: String) {
+        var page = URLComponents(url: Self.home, resolvingAgainstBaseURL: false)
+        page?.fragment = fragment
+        if let url = page?.url { open(url) }
+    }
+
     private func documentURL(for url: URL) -> URL {
         guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parts.fragment?.hasPrefix("email=") == true else { return url }

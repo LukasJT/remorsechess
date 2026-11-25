@@ -1,6 +1,6 @@
 # Remorse Chess for iOS
 
-Open [RemorseChess.xcodeproj](RemorseChess.xcodeproj) in Xcode, select the **RemorseChess** scheme and an iPhone or iPad simulator, then choose **Run**. The minimum OS is iOS 17. For a physical device, select your development team in **Signing & Capabilities**.
+Open [RemorseChess.xcodeproj](RemorseChess.xcodeproj) in Xcode 26 or later, select the **RemorseChess** scheme and an iPhone or iPad simulator, then choose **Run**. The minimum device OS is iOS 17. A physical device or a TestFlight upload requires the project's Apple Developer team. See the [release guide](AppStore/RELEASE.md) for signing and device checks.
 
 ## App Store assets
 
@@ -19,9 +19,9 @@ xcodebuild -project ios/RemorseChess.xcodeproj -scheme RemorseChess \
 
 **Offline** runs a native board with three computer levels, same-device pass-and-play, a daily puzzle, and 80 practice positions. The local engine and artwork are bundled, and the current match and solved puzzles are saved on the device.
 
-Use **Online options → Open game or email link** to paste a Remorse Chess invitation or email link into the app. **Online options → Online with a passkey** opens Apple’s in-app Safari browser for passkey users. Keep playing in that browser after sign-in because it uses a separate session from the main Online tab. The main Online tab supports the site’s email and password sign-in flows.
+The Online tab uses the existing RemorseChess.com account directly. Sign in with the same method you use on the site to load the same profile, ratings, and game history. **Online options** links directly to **Profile and game history** and **Rating history**. Use **Open game or email link** to paste a Remorse Chess invitation or email link into the app.
 
-The production site currently has no Apple App Site Association (AASA) file. To enable passkeys in the main Online tab and open HTTPS invitation links directly from other apps, a future signed build needs the `webcredentials:remorsechess.com` and `applinks:remorsechess.com` Associated Domains entries. The site also needs an AASA file naming the signed Apple Team ID and bundle identifier. [Apple’s Associated Domains documentation](https://developer.apple.com/documentation/xcode/supporting-associated-domains) covers the server and signing setup.
+The Xcode target includes the `webcredentials:remorsechess.com` and `applinks:remorsechess.com` entitlements. The Worker serves the matching Apple App Site Association response when `IOS_APP_TEAM_ID` is configured on the production Worker. That activates passkeys inside the Online tab and lets the system route invitation and email links to the app once Apple has validated the association. **Open in Safari view** offers a separate browsing session during development. [Apple’s Associated Domains documentation](https://developer.apple.com/documentation/xcode/supporting-associated-domains)
 
 ## Engine
 

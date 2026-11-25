@@ -7,7 +7,7 @@ const mails=[]
 const mf=new Miniflare(convertV4MiniflareOptions({workers:[{
   name:'auth-test',modules:true,scriptPath:process.argv[2]??'.wrangler/password-test/worker.js',
   compatibilityDate:'2025-04-01',compatibilityFlags:['nodejs_compat'],
-  bindings:{RESEND_API_KEY:'local-test-key'},
+  bindings:{RESEND_API_KEY:'local-test-key',IOS_APP_TEAM_ID:'ABCDEF1234'},
   durableObjects:{ROOMS:{className:'Room',useSQLite:true},LOBBY:{className:'Lobby',useSQLite:true}},
   serviceBindings:{GAME_LIMIT:'limits',WRITE_LIMIT:'limits',EMAIL_LIMIT:'limits'},
   stripCfConnectingIp:true,
@@ -38,6 +38,16 @@ function browser(session){
 }
 
 try {
+  const association=await mf.dispatchFetch(origin+'/.well-known/apple-app-site-association')
+  assert.equal(association.status,200)
+  assert.match(association.headers.get('content-type'),/^application\/json/)
+  const domains=await association.json()
+  assert.deepEqual(domains.webcredentials.apps,['ABCDEF1234.com.remorsechess.ios'])
+  assert.deepEqual(domains.applinks.details,[{
+    appIDs:domains.webcredentials.apps,components:[{'/':'/','?':{game:'?*'}},{'/':'/','#':'email=*'}],
+  }])
+  assert.equal((await mf.dispatchFetch('https://staging.example.com/.well-known/apple-app-site-association')).status,404)
+
   const desktop=browser(), phone=browser(), passwordDevice=browser(), linkDevice=browser()
   for(const device of [desktop,phone,passwordDevice,linkDevice])assert.equal((await device('session')).account,false)
   const email='signup@example.com', password='startpass', replacement='resetpass'
@@ -94,6 +104,22 @@ try {
   await lobby.signIn(legacySession,legacy)
   const original=browser(legacySession), recovery=browser(), fresh=browser()
   for(const device of [original,recovery,fresh])await device('session')
+  const control={seconds:180,increment:0,rated:true}
+  assert.equal((await original('queue',control)).queued,true)
+  const paired=await desktop('queue',control)
+  assert.match(paired.id,/^[a-f0-9]{32}$/)
+  const room='room/'+paired.id
+  const {match}=await original(room)
+  await original(room+'/command',{id:crypto.randomUUID(),version:match.version,action:{type:'resign'}})
+  let prior
+  for(let attempt=0;attempt<40;attempt++){
+    prior=await original('profile')
+    if(prior.history.some(game=>game.id===paired.id))break
+    await new Promise(resolve=>setTimeout(resolve,250))
+  }
+  const priorHistory=await original('rating-history?pool=Blitz')
+  assert.equal(prior.ratings.Blitz.games,1)
+  assert.equal(priorHistory.events[0]?.id,paired.id)
   await original(start,{email:legacyEmail,link:true})
   await recovery(finish,{code:codeFor(legacyEmail)})
   assert.equal((await recovery('profile')).user.id,legacy.id)
@@ -102,7 +128,12 @@ try {
   await original(start,{email:legacyEmail,purpose:'reset'})
   const setup=codeFor(legacyEmail)
   await fresh(finish,{code:setup,password})
-  assert.equal((await fresh('profile')).user.id,legacy.id)
+  const existingProfile=await fresh('profile')
+  assert.equal(existingProfile.user.id,legacy.id)
+  assert.deepEqual(existingProfile.ratings,prior.ratings)
+  assert.deepEqual(existingProfile.history,prior.history)
+  assert.deepEqual(await fresh('rating-history?pool=Blitz'),priorHistory)
+  assert.equal((await fresh(room)).match.game.result.reason,'Resignation')
   await clearCooldown(email)
   await phone(start,{email,purpose:'signup'})
   const existingSignup=codeFor(email)
@@ -114,7 +145,7 @@ try {
   await check('session')
   await check(signIn,{email,password:replacement})
 
-  console.log('Email auth passed: signup, cross-device access, password sign-in, link sign-in, reset, and legacy accounts.')
+  console.log('Email auth passed: signup, cross-device access, sign-in, reset, legacy account ratings and game history, and Apple domain association.')
 }finally{
   await mf.dispose()
 }
