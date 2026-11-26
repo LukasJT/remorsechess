@@ -2,13 +2,19 @@ import {matchingOpening,openings,replayStudy} from './openings.ts'
 import {at,captureTarget,legal,moodNames,name,play,type Action,type Game,type Side} from './rules.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
 import {engravedPiece} from './piece-art.ts'
+import {navIcon} from './site-navigation.ts'
 import './study.css'
 
-const foot=document.querySelector<HTMLInputElement>('#opening-search')
-foot?.addEventListener('input',()=>{
+const search=document.querySelector<HTMLInputElement>('#opening-search')
+const empty=document.querySelector<HTMLElement>('#opening-empty')
+search?.addEventListener('input',()=>{
+  const query=search.value.trim().toLowerCase()
+  let matches=0
   for(const row of document.querySelectorAll<HTMLElement>('#opening-list li')){
-    row.hidden=!row.textContent.toLowerCase().includes(foot.value.trim().toLowerCase())
+    row.hidden=!row.textContent.toLowerCase().includes(query)
+    if(!row.hidden)matches++
   }
+  if(empty)empty.hidden=matches>0
 })
 
 const root=document.querySelector<HTMLElement>('[data-study]')
@@ -70,14 +76,15 @@ function study(root:HTMLElement,line:string){
       return '<button type="button" data-square="'+square+'" class="'+((i%8+Math.floor(i/8))%2?'dark':'light')+'" aria-label="'+description+'" aria-pressed="'+(selected===square)+'" '+(options.some(a=>a.type!=='end'&&a.to===square)?'data-target':'')+'>'+(piece?engravedPiece(piece.kind,piece.side):'')+'</button>'
     })
     const continuations=actions.filter(a=>a.type!=='end'&&(game.bonus!==null||captureTarget(game,a))).slice(0,12)
-    root.innerHTML='<div class="study-board" role="group" aria-label="Chessboard">'+board.join('')+'</div>'+
-      '<p role="status">'+(game.result?(game.result.winner?game.result.winner+' wins':'Draw')+' · '+game.result.reason:game.side+' to move'+(game.bonus!==null?' · Mandatory bonus move':'')+(human?' · Unrated practice':''))+'</p>'+
+    root.innerHTML='<div class="study-board" role="group" aria-label="Chessboard">'+board.join('')+'</div><div class="study-console">'+
+      '<h2><span class="guide-emblem">'+navIcon('openings')+'</span> Analysis board</h2>'+
+      '<p role="status">'+(game.result?(game.result.winner?(game.result.winner==='white'?'White':'Black')+' wins':'Draw')+' · '+game.result.reason:(game.side==='white'?'White':'Black')+' to move'+(game.bonus!==null?' · Mandatory bonus move':'')+(human?' · Unrated practice':''))+'</p>'+
       (opening&&opening[0]!==root.dataset.study?'<p>Transposes to <a href="/openings/'+opening[0]+'/">'+opening[1]+'</a></p>':'')+
-      '<div class="study-controls"><button data-control="back">Back</button><button data-control="next" '+(human||index===moves.length?'disabled':'')+'>Next book move</button><button data-control="flip">Flip</button><button data-control="reset">Reset</button>'+
+      '<div class="study-controls"><button class="study-round" data-control="back" aria-label="Back" title="Back">‹</button><button data-control="next" '+(human||index===moves.length?'disabled':'')+'>Next book move</button><button class="study-round" data-control="flip" aria-label="Flip board" title="Flip board">⇅</button><button class="study-round" data-control="reset" aria-label="Reset" title="Reset">↺</button>'+
       '<label>Study die <select id="study-die" '+(human?'disabled':'')+'>'+[1,2,3,4,5,6].map(n=>'<option '+(n===face?'selected':'')+'>'+n+'</option>').join('')+'</select></label></div>'+
       '<div class="study-controls"><label>Practice level <select id="study-level">'+(['rookie','tactical','expert'] as const).map(level=>'<option value="'+level+'" '+(level===difficulty?'selected':'')+'>'+difficulties[level].name+'</option>').join('')+'</select></label><button data-control="practice-white">Play from here as White</button><button data-control="practice-black">Play from here as Black</button></div>'+
       (!human&&continuations.length?'<div class="study-controls"><strong>Try a continuation</strong>'+continuations.map(a=>'<button data-action="'+actions.indexOf(a)+'">'+(a.type==='end'?'End turn':name(a.from)+'–'+name(a.to))+'</button>').join('')+'</div>':'')+
-      '<details><summary>Moves and events</summary><ol>'+notes.slice(1).map(note=>'<li>'+note+'</li>').join('')+'</ol></details>'
+      '<details><summary>Moves and events</summary>'+(notes.length>1?'<ol>'+notes.slice(1).map(note=>'<li>'+note+'</li>').join('')+'</ol>':'<p>No moves yet.</p>')+'</details></div>'
     if(focus)root.querySelector<HTMLButtonElement>('[data-control="'+focus+'"]:not(:disabled)')?.focus()
   }
   root.addEventListener('change',event=>{

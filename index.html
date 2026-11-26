@@ -3,12 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#191517">
+  <meta name="theme-color" content="#191827">
   <title>Remorse Chess — Play Free Online</title>
   <meta name="description" content="Play Remorse Chess, the chess variant where a die decides what happens after each piece’s first capture. Play online, challenge a friend, or practice against a bot.">
   <meta name="googlebot" content="max-image-preview:none">
   <link rel="canonical" href="https://remorsechess.com/">
   <link rel="icon" href="/favicon.png" type="image/png" sizes="96x96">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/site-navigation.css">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Remorse Chess">
   <meta property="og:url" content="https://remorsechess.com/">
@@ -47,20 +49,27 @@
     .home-fallback { max-width: 70ch; margin: 3rem auto; padding: 0 1.25rem; font: 1.125rem/1.6 system-ui, sans-serif; }
     .home-fallback h1 { line-height: 1.1; }
     .home-fallback a { color: inherit; text-underline-offset: .2em; }
-    @media (prefers-color-scheme: dark) { html { color-scheme: dark; } }
+    html { color-scheme: dark; background: #191827; color: #fbecdf; }
+    body { margin: 0; }
+    .startup { min-height: 100svh; display: grid; place-content: center; justify-items: center; gap: .65rem; text-align: center; font: 600 .88rem/1.5 system-ui, sans-serif; color: #cbbbd6; }
+    .startup img { width: 48px; height: 52px; object-fit: contain; }
   </style>
 </head>
 <body>
   <div id="app">
+    <div class="startup" role="status"><img src="/after-hours/horse-icon.webp" width="48" height="52" alt="">Loading Remorse Chess…</div>
+  </div>
+  <noscript>
+    <style>.startup { display: none; }</style>
     <main class="home-fallback">
       <h1>Remorse Chess</h1>
       <p>Remorse Chess is the chess variant <a href="/history/">from TikTok</a> where each piece rolls a die after its first capture. A piece can freeze, lose the ability to capture, or earn a second move. <a href="/rules/">Learn the rules</a> or play free here.</p>
       <p>Find an online match, invite a friend, play on one device, or practice against a bot.</p>
       <p><a href="/rules/">Read the full rules</a> · <a href="/openings/">Opening explorer</a> · <a href="/study/">Study</a> · <a href="/puzzles/">Puzzles</a> · <a href="/strategy/">Learn Remorse Chess strategy</a> · <a href="/history/">History and creator credit</a></p>
       <p>Original variant by <a href="https://www.tiktok.com/@bardelo_bardalini/video/7708565524501892383">Bardelo Bardalini</a>.</p>
-      <noscript><p>Enable JavaScript to play. The rules and history are available now.</p></noscript>
+      <p>Enable JavaScript to play. The rules and history are available now.</p>
     </main>
-  </div>
+  </noscript>
   <script type="module" src="/src/client.ts"></script>
 </body>
 </html>

@@ -4,6 +4,8 @@ import {queueHandle,thinkTime} from './queue-opponent.ts'
 import {ratingDistribution,referenceCounts,referenceDate,referenceSource,type LivePool} from './rating-reference.ts'
 import './style.css'
 import './after-hours.css'
+import './workspaces.css'
+import {navIcon,navGroup,navLink,sectionLinks,siteHeader} from './site-navigation.ts'
 import {engravedPiece} from './piece-art.ts'
 import {replayStudy} from './openings.ts'
 import {homeGuide} from './home-guide.ts'
@@ -296,44 +298,15 @@ function game(){
   const preview=mode==='online'&&seat&&info?.rated&&review===null&&!g.result&&ratingImpact?ratingPreview(ratingImpact):''
   return '<main class="game"><section class="game-board-area"><div class="crumb">'+(mode==='online'&&info?.control.days?button('daily-tab','← Daily'):mode==='bot'&&practicePuzzle!==undefined?'<a href="/puzzles/">← Puzzles</a>':mode==='bot'&&!quickBot?button('bot','← Opponents'):mode==='bot-exhibition'?button('admin','← Admin'):button('home','← Lobby'))+'<b>'+safe(mode==='online'?(info?.control.days?('DAILY · '+clockLabel(info.control).toUpperCase()):info?.rated?'RATED ONLINE':info?.bot?'RANKED QUEUE · UNRATED':'CASUAL ONLINE'):mode==='local'?'SAME COMPUTER':mode==='bot'?(quickBot?'QUICK PLAY':practicePuzzle===undefined?'BOT '+selectedBotElo:'PUZZLE PRACTICE'):mode==='bot-exhibition'?'BOT VS BOT · EXHIBITION':'TRAINING')+'</b>'+button('flip','⇅ Flip')+'</div>'+player(upper,v)+'<div class="board '+prefs.theme+'" role="group" aria-label="Chessboard">'+board+'<div id="particles"></div></div>'+player(opposite(upper),v)+'<div class="action-bar"><strong aria-live="polite">'+safe(headline)+'</strong>'+compactRoll+(g.result?button('result','Result'):'')+(canAct()&&bonusPiece&&!mandatoryBonus?button('end','End turn','primary'):'')+(canAct()&&actions.some(a=>a.type==='absolve')?button('absolve',absolve?'Cancel':'✧ Absolve',absolve?'primary':''):'')+'</div>'+(mode==='online'&&info?.open?button(seat?'share':'join',seat?'Copy invite link':'Join game','primary'):'')+(m.offer&&!m.game.result&&(mode!=='online'||seat&&seat!==m.offer)?'<div>Draw offered '+button('accept','Accept')+button('decline','Decline')+'</div>':'')+'<p id="status" role="status">'+safe(status||prompt)+'</p>'+preview+'<button class="game-jump" data-do="game-details" aria-controls="match-details">Moves &amp; details</button></section><aside id="match-details"><button class="board-jump" data-do="game-board">Back to board</button><section class="panel"><h2>◆ DICE TRAY</h2>'+tray+''+(p?'<div class="inspector"><b>'+cap(p.side)+' '+labels[p.kind]+' · '+name(p.square)+'</b><small>'+(p.roll?moodNames[p.mood]+' · Rolled '+p.roll:'Hasn’t rolled')+' · '+p.kills+' captures</small></div>':'')+g.pieces.filter(p=>p.rescue).map(p=>'<div class="rescue">'+cap(p.side)+' '+labels[p.kind]+' '+name(p.square)+' · '+(p.rescue===1?'Last chance':p.rescue+' turns left')+'</div>').join('')+'</section><section class="panel details"><div class="tabs">'+['Moves','Events','Rules'].map(t=>'<button data-tab="'+t+'" aria-pressed="'+(t===tab)+'">'+t+'</button>').join('')+'</div><div id="log" data-tab="'+tab+'">'+(tab==='Rules'?rulesText(g.rulesVersion):history?'<ol>'+history+'</ol>':'<p>No entries yet.</p>')+'</div>'+(m.log.length?'<div class="review">'+button('first','⏮')+button('prev','◀')+'<span>'+(review??'Latest')+'</span>'+button('next','▶')+button('live','⏭')+'</div>':'')+'</section><div class="tools">'+(mode==='local'?button('undo','Undo')+button('redo','Redo')+button('names','Player names'):'')+(mode!=='bot-exhibition'&&!g.result&&v.start&&(mode!=='online'||seat)?(info?.bot&&mode==='online'?'':button('offer','Offer draw'))+button('resign','Resign'):'')+(mode==='online'?button('share','Share'):button('restart','Restart'))+(g.result&&mode==='online'&&seat?(info?.control.days?button('daily-tab','Daily games'):info?.bot?button('queue-again','Find another ranked match'):button('rematch','Rematch')):'')+(session?.account&&mode==='online'&&seat&&!info?.open&&!info?.bot?button('conduct','Report or block'):'')+(opponent?button('opponent-profile','Player profile'):'')+(m.log.length?button('export','Export'):'')+'</div></aside></main>'
 }
-const navIcons={
-  play:'<path d="m9 5 11 7-11 7z"/>',
-  daily:'<rect x="4" y="6" width="16" height="14" rx="1"/><path d="M8 3v6m8-6v6M4 11h16"/>',
-  bot:'<rect x="5" y="8" width="14" height="12" rx="2"/><path d="M12 4v4m-4 5h1m6 0h1m-7 4h6"/>',
-  watch:'<path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2"/>',
-  openings:'<rect x="4" y="4" width="16" height="16"/><path d="M12 4v16M4 12h16"/>',
-  study:'<path d="M12 19c-2-2-5-3-9-2V5c4-1 7 0 9 2 2-2 5-3 9-2v12c-4-1-7 0-9 2zm0-12v12"/>',
-  rules:'<path d="M6 3h9l4 4v14H6zm9 0v5h4M9 12h7m-7 4h7"/>',
-  ratings:'<path d="M4 4v16h16M8 15l4-4 3 2 5-6"/>',
-  friends:'<circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m2-15a3 3 0 0 1 0 6m0 3a5 5 0 0 1 4 4v2"/>',
-  profile:'<circle cx="12" cy="8" r="4"/><path d="M5 21v-1a7 7 0 0 1 14 0v1"/>',
-  settings:'<path d="M5 6h14M5 12h14M5 18h14M9 4v4m6 2v4m-5 2v4"/>',
-  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
-  rook:'<path d="M5 3h3v4h2V3h4v4h2V3h3v6l-3 2v5l2 2v3H6v-3l2-2v-5L5 9zM8 11h8M6 18h12"/>',
-  bullet:'<path d="M10 13c0-4 5-8 10-9-1 5-5 10-9 10Zm0 0-3 4m1-5-4 4m7-1-3 5"/>',
-  blitz:'<path d="m14 2-9 12h6l-1 8 9-12h-6z"/>',
-  clock:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M10 2h4m4 4 2-2"/>',
-  dice:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h.01m8 0h.01m-4 4h.01m-4 4h.01m8 0h.01" stroke-width="3"/>',
-  puzzles:'<path d="M4 4h6v2a2 2 0 1 0 4 0V4h6v6h-2a2 2 0 0 0 0 4h2v6h-6v-2a2 2 0 0 0-4 0v2H4v-6h2a2 2 0 0 0 0-4H4z"/>',
-}
-const navIcon=(key:keyof typeof navIcons)=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+navIcons[key]+'</svg>'
 function siteNavigation(){
   const current=mode==='home'?(playTab==='daily'?'daily-tab':'home'):mode==='account'?accountTab:mode==='bot-picker'?'bot':''
-  const item=(icon:keyof typeof navIcons,label:string,action?:string,href?:string)=>{
-    const active=action!==undefined&&current===action?' aria-current="page"':''
-    const content=navIcon(icon)+'<span>'+label+'</span>'
-    if(href)return '<a href="'+href+'"'+(action?' data-do="'+action+'"':'')+active+'>'+content+'</a>'
-    return '<button type="button" data-do="'+action+'"'+active+'>'+content+'</button>'
-  }
-  return '<nav id="site-nav" aria-label="Main navigation"><div class="site-nav-group" role="group" aria-label="Play">'+
-    item('play','Play','home','/')+item('daily','Daily games','daily-tab','/#daily')+item('bot','Practice vs bot','bot','/#bots')+
-    item('watch','Watch','watch','/#watch')+'</div><div class="site-nav-group" role="group" aria-label="Learn">'+
-    item('puzzles','Puzzles',undefined,'/puzzles/')+item('openings','Openings',undefined,'/openings/')+item('study','Study',undefined,'/study/')+item('rules','Rules',undefined,'/rules/')+
-    '</div><div class="site-nav-group" role="group" aria-label="Community and account">'+item('ratings','Ratings','leaders','/#leaders')+
+  const item=(icon:Parameters<typeof navLink>[0],label:string,action?:string,href?:string)=>navLink(icon,label,href,action,current===action)
+  const groups=sectionLinks.map((links,i)=>navGroup(i?'Learn':'Play',links.map(([icon,label,href,action])=>item(icon,label,action||undefined,href)).join(''))).join('')
+  return '<nav id="site-nav" aria-label="Main navigation">'+groups+navGroup('Community and account',item('ratings','Ratings','leaders','/#leaders')+
     (session?.account?item('ratings','Rating history','stats','/#stats'):'')+item('friends','Friends','friends','/#friends')+
     (session?.account?item('profile','Profile','profile','/#profile'):session?.passkeys?item('profile','Sign in','sign-in'):
       session?.signIn?item('profile','Sign in',undefined,'/api/auth/start'):'')+
-    (session?.admin?item('profile','Admin','admin','/#admin'):'')+item('settings','Settings','settings')+'</div></nav>'
+    (session?.admin?item('profile','Admin','admin','/#admin'):'')+item('settings','Settings','settings'))+'</nav>'
 }
 function setSiteMenu(open:boolean){
   $('#site-menu')?.setAttribute('aria-expanded',String(open))
@@ -349,9 +322,7 @@ function render(){
   const oldLog=$('#log')
   const logScroll=oldLog?.dataset.tab===tab&&oldLog.clientHeight?
     {top:oldLog.scrollTop,atEnd:oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<24}:null
-  root.innerHTML='<header class="site-bar"><button type="button" id="site-menu" data-do="site-menu" aria-controls="site-nav" aria-expanded="false">'+
-    navIcon('menu')+'<span>Menu</span></button><a href="/" class="logo" data-do="home"><img src="/after-hours/horse-icon.webp" width="44" height="47" alt=""><b>Remorse <span>Chess</span></b></a></header>'+
-    siteNavigation()+(mode==='home'?home():mode==='bot-picker'?botPicker():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+
+  root.innerHTML=siteHeader(true)+siteNavigation()+(mode==='home'?home():mode==='bot-picker'?botPicker():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+
     '" id="account" data-page="'+safe(accountTab)+'">Loading…</main>':game())+
     '<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
   setSiteMenu(false)
@@ -462,10 +433,20 @@ function scheduleResult(match:Match,delay=0,celebrate=true){
   },delay)
 }
 function settings(){
-  const checks=Object.entries({yells:'Capture yells',diceSound:'Dice sounds',uiSound:'Move sounds',diceMotion:'Dice animation',moodMotion:'Piece mood animation',ads:'Sponsor banners',last:'Last move highlight',drag:'Drag pieces',shake:'Screen shake',flash:'Impact flash',motion:'Reduced motion',crt:'Scanlines',coords:'Coordinates',hints:'Move hints',autoFlip:'Auto-flip local board',confirm:'Confirm friendly captures'})
+  const checks=(fields:Record<string,string>)=>Object.entries(fields)
     .map(([key,label])=>'<label><input type="checkbox" data-pref="'+key+'" '+(prefs[key as keyof typeof prefs]?'checked':'')+'>'+label+'</label>').join('')
-  const selects=Object.entries({blood:['off','low','full'],speed:['off','fast','normal'],theme:['parchment','slate'],pieces:['pixel','classic']}).map(([key,opts])=>'<label>'+key+' <select data-pref="'+key+'">'+opts.map(v=>'<option '+(v===prefs[key as keyof typeof prefs]?'selected':'')+'>'+v+'</option>').join('')+'</select></label>').join('')
-  modal('<h2>Settings</h2><div class="settings"><label>Volume <input data-pref="volume" type="range" min="0" max="100" value="'+prefs.volume+'"></label>'+button('quiet','Quiet mode')+checks+selects+'</div>','settings')
+  const select=(key:'blood'|'speed'|'theme'|'pieces',label:string,opts:string[])=>
+    '<label class="select-field">'+label+'<select data-pref="'+key+'">'+opts.map(v=>'<option value="'+v+'" '+(v===prefs[key]?'selected':'')+'>'+v[0].toUpperCase()+v.slice(1)+'</option>').join('')+'</select></label>'
+  const group=(icon:Parameters<typeof navIcon>[0],title:string,fields:string)=>
+    '<fieldset class="settings-section"><legend>'+featureIcon(icon)+title+'</legend><div class="settings">'+fields+'</div></fieldset>'
+  modal('<h2>Settings</h2><div class="settings-layout">'+
+    group('openings','Board',select('theme','Board theme',['parchment','slate'])+select('pieces','Piece set',['pixel','classic'])+
+      checks({last:'Last move highlight',drag:'Drag pieces',coords:'Coordinates',hints:'Move hints',autoFlip:'Auto-flip local board',confirm:'Confirm friendly captures'}))+
+    group('dice','Motion &amp; effects',select('speed','Animation speed',['off','fast','normal'])+select('blood','Capture particles',['off','low','full'])+
+      checks({diceMotion:'Dice animation',moodMotion:'Piece mood animation',shake:'Screen shake',flash:'Impact flash',motion:'Reduced motion',crt:'Scanlines'}))+
+    group('settings','Audio','<label class="volume-field">Volume<input data-pref="volume" type="range" min="0" max="100" value="'+prefs.volume+'"></label>'+button('quiet','Quiet mode')+
+      checks({yells:'Capture yells',diceSound:'Dice sounds',uiSound:'Move sounds'}))+
+    group('watch','Site',checks({ads:'Sponsor banners'}))+'</div>','settings')
 }
 let prefsTimer=0
 function savePrefs(){
@@ -1186,8 +1167,9 @@ function square(sq:number){
   }
 }
 async function openDistribution(node:HTMLElement){
-  node.innerHTML='<h1>Rating distribution</h1><form class="tools"><label>Pool <select name="pool"><option>Bullet</option><option selected>Blitz</option><option>Rapid</option><option>Daily</option></select></label>'+
-    '<label>Population <select name="source"><option value="local">Remorse players</option><option value="reference">Historical Chess.com reference</option></select></label></form><div data-distribution></div>'
+  node.innerHTML=workspaceHeading('Rating distribution','See how player ratings are spread across each time control.','q')+
+    '<form class="rating-filters"><label>Time control<select name="pool"><option>Bullet</option><option selected>Blitz</option><option>Rapid</option><option>Daily</option></select></label>'+
+    '<label>Population<select name="source"><option value="local">Remorse players</option><option value="reference">Historical Chess.com reference</option></select></label></form><div class="rating-trend" data-distribution></div>'
   const form=node.querySelector('form')!
   const output=node.querySelector<HTMLElement>('[data-distribution]')!
   let request=0
@@ -1230,9 +1212,18 @@ async function openDistribution(node:HTMLElement){
   form.onchange=()=>void refresh()
   await refresh()
 }
+const featureIcon=(icon:Parameters<typeof navIcon>[0])=>'<span class="feature-icon">'+navIcon(icon)+'</span>'
+function workspaceHeading(title:string,description:string,piece:Kind){
+  return '<header class="workspace-heading"><div><h1>'+title+'</h1><p>'+description+'</p></div><div class="workspace-crest" aria-hidden="true">'+engravedPiece(piece,'white')+'</div></header>'
+}
+const recordDate=new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric',year:'numeric'})
+const signed=(value:number)=>(value>0?'+':'')+value
+const ratingTone=(delta:number)=>delta>0?'gain':delta<0?'drop':''
+const poolIcons={Bullet:'bullet',Blitz:'blitz',Rapid:'clock',Daily:'daily'} as const
 async function openRatingStats(node:HTMLElement){
-  node.innerHTML='<h1>Rating history</h1><form class="tools"><label>Pool <select name="pool"><option>Bullet</option><option selected>Blitz</option><option>Rapid</option><option>Daily</option></select></label>'+
-    '<label>Period <select name="period"><option value="7">7 days</option><option value="30">30 days</option><option value="90" selected>90 days</option><option value="365">1 year</option><option value="0">All time</option></select></label></form><div data-rating-stats></div>'
+  node.innerHTML=workspaceHeading('Rating history','Review your rating changes and replay the games behind them.','n')+
+    '<form class="rating-filters"><label>Time control<select name="pool"><option>Bullet</option><option selected>Blitz</option><option>Rapid</option><option>Daily</option></select></label>'+
+    '<label>Period<select name="period"><option value="7">7 days</option><option value="30">30 days</option><option value="90" selected>90 days</option><option value="365">1 year</option><option value="0">All time</option></select></label></form><div data-rating-stats></div>'
   const form=node.querySelector('form')!
   const output=node.querySelector<HTMLElement>('[data-rating-stats]')!
   let request=0
@@ -1242,7 +1233,8 @@ async function openRatingStats(node:HTMLElement){
     const group=String(fields.get('pool'))
     const days=Number(fields.get('period'))
     const since=days?Date.now()-days*86400_000:0
-    output.textContent='Loading ratings…'
+    output.setAttribute('aria-busy','true')
+    output.innerHTML='<p class="workspace-empty" role="status">Loading ratings…</p>'
     try{
       const events:RatingEvent[]=[]
       let before:string|null=null
@@ -1257,36 +1249,53 @@ async function openRatingStats(node:HTMLElement){
         before=page.events.some(event=>event.time<since)?null:page.next
       }while(before)
       const count=countedGames(current)
-      const title=establishedRating(current)??(count?'Predicted rating '+Math.round(current!.rating):'Unranked')
-      output.innerHTML='<h2>'+title+'</h2>'
+      const established=establishedRating(current)
+      const primary=established??(count?Math.round(current!.rating):'Unranked')
+      const poolIcon=poolIcons[group as keyof typeof poolIcons]
+      output.innerHTML='<section class="rating-summary" aria-label="Current rating">'+featureIcon(poolIcon)+'<div><span>'+group+' '+(established==null&&count?'predicted rating':'rating')+'</span><strong>'+primary+'</strong></div></section>'
       if((baseline&&baseline.recorded>=since)||(!events.length&&current&&count)){
         const prior=baseline?.rating??current!
-        output.insertAdjacentHTML('beforeend','<p>Earlier results carried forward · '+countedGames(prior)+' games at '+Math.round(prior.rating)+'. Detailed history begins with the new rating system.</p>')
+        output.insertAdjacentHTML('beforeend','<p class="rating-note">Earlier results carried forward · '+countedGames(prior)+' games at '+Math.round(prior.rating)+'. Detailed history begins with the new rating system.</p>')
       }
-      if(!events.length){output.insertAdjacentHTML('beforeend','<p>No recorded rating changes in this period.</p>');return}
+      if(!events.length){
+        output.insertAdjacentHTML('beforeend','<div class="workspace-empty">'+featureIcon('ratings')+'<div><strong>No rating changes in this period</strong><p>Choose a longer period or play a rated game in this time control.</p></div></div>')
+        return
+      }
       const ordered=events.slice().reverse()
       const values=ordered.map(event=>Math.round(event.after.rating))
       const low=Math.min(...values)-20, high=Math.max(...values)+20
       const earliest=ordered[0].time, latest=ordered.at(-1)!.time
-      const point=(value:number,i:number)=>[45+(values.length===1?257:515*(ordered[i].time-earliest)/Math.max(1,latest-earliest)),110-(value-low)*90/(high-low)]
+      const point=(value:number,i:number)=>[61+(values.length===1?248:497*(latest===earliest?i/(values.length-1):(ordered[i].time-earliest)/(latest-earliest))),132-(value-low)*112/(high-low)]
       const plotted=values.map(point)
-
-      const line=(points:number[][],dashed=false)=>'<polyline fill="none" stroke="currentColor" stroke-width="2" '+(dashed?'stroke-dasharray="5 5" ':'')+'points="'+points.map(p=>p.join(',')).join(' ')+'"/>'
-
+      const coordinates=plotted.map(p=>p.join(',')).join(' ')
+      const guide=[high,Math.round((high+low)/2),low].map((value,i)=>{
+        const y=20+i*56
+        return '<line x1="60" y1="'+y+'" x2="558" y2="'+y+'"/><text x="53" y="'+(y+4)+'" text-anchor="end">'+value+'</text>'
+      }).join('')
       const total=events.reduce((n,e)=>n+e.score,0)
       const net=Math.round(ordered.at(-1)!.after.rating)-Math.round(ordered[0].before.rating)
       const average=Math.round(events.reduce((total,e)=>total+e.opponent,0)/events.length)
       const wins=events.filter(e=>e.score===1).length, draws=2*(total-wins)
       const bestWin=events.filter(e=>e.score===1).sort((a,b)=>b.opponent-a.opponent)[0]
       const peak=events.reduce<RatingEvent|undefined>((best,e)=>!best||e.after.rating>best.after.rating?e:best,undefined)
-      output.insertAdjacentHTML('beforeend','<p>'+events.length+' games · '+wins+' wins · '+draws+' draws · '+(events.length-wins-draws)+' losses'+' · Net '+(net>0?'+':'')+net+' · Avg. opponent '+average+(bestWin?' · Best win '+Math.round(bestWin.opponent):'')+(peak?' · Peak '+Math.round(peak.after.rating)+' on '+new Date(peak.time).toLocaleDateString():'')+'</p>'+
-        '<svg class="rating-chart" viewBox="0 0 575 125" role="img" aria-label="Rating history. The table gives exact values."><text x="4" y="25" fill="currentColor">'+high+'</text><text x="4" y="112" fill="currentColor">'+low+'</text>'+
-        line(plotted)+
-        (values.length===1?'<circle cx="'+plotted[0][0]+'" cy="'+plotted[0][1]+'" r="3" fill="currentColor"/>':'')+
-        '</svg><div class="ratings-table"><table><thead><tr><th>Game</th><th>Result</th><th>Rating</th><th>Change</th></tr></thead><tbody>'+
-        events.map(e=>'<tr><td><a href="/?game='+safe(e.id)+'">'+new Date(e.time).toLocaleDateString()+'</a></td><td>'+(e.score===1?'Win':e.score===0?'Loss':'Draw')+'</td><td>'+Math.round(e.after.rating)+'</td><td>'+ratingDelta(e.before,e.after)+'</td></tr>').join('')+
-        '</tbody></table></div>')
-    }catch{if(version===request)output.textContent='Rating history is unavailable. Try again.'}
+      const metric=(label:string,value:number|string,tone='',detail='')=>'<div><dt>'+label+'</dt><dd class="'+tone+'">'+value+(detail?'<small>'+detail+'</small>':'')+'</dd></div>'
+      const latestPoint=plotted.at(-1)!
+      output.insertAdjacentHTML('beforeend','<dl class="rating-metrics">'+metric('Games',events.length)+metric('Net change',signed(net),ratingTone(net))+
+        metric('Average opponent',average)+(bestWin?metric('Best win',Math.round(bestWin.opponent)):'')+(peak?metric('Peak rating',Math.round(peak.after.rating),'',recordDate.format(peak.time)):'')+'</dl>'+
+        '<section class="rating-trend"><div class="workspace-section-heading"><h2>Rating trend</h2><p>'+wins+' W · '+draws+' D · '+(events.length-wins-draws)+' L</p></div>'+
+        '<svg class="rating-chart" viewBox="0 0 575 146" role="img" aria-label="Rating trend. Exact ratings are listed under Recent games."><defs><linearGradient id="rating-fill" x2="0%" y2="100%"><stop stop-color="#f3bad4" stop-opacity=".36"/><stop offset="1" stop-color="#f3bad4" stop-opacity="0"/></linearGradient></defs>'+
+        '<g class="rating-guides">'+guide+'</g>'+
+        (values.length>1?'<polygon fill="url(#rating-fill)" points="'+plotted[0][0]+',132 '+coordinates+' '+latestPoint[0]+',132"/><polyline fill="none" stroke="currentColor" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" points="'+coordinates+'"/>':'')+
+        '<circle cx="'+latestPoint[0]+'" cy="'+latestPoint[1]+'" r="4.5" fill="currentColor"/></svg><div class="rating-dates"><time>'+recordDate.format(earliest)+'</time>'+
+        (recordDate.format(latest)!==recordDate.format(earliest)?'<time>'+recordDate.format(latest)+'</time>':'')+'</div></section>'+
+        '<section class="rating-games"><div class="workspace-section-heading"><h2>Recent games</h2><p>Select a game to replay it</p></div><div class="ratings-table"><table><thead><tr><th scope="col">Game</th><th scope="col">Result</th><th scope="col">Rating</th><th scope="col">Change</th></tr></thead><tbody>'+
+        events.map(e=>{
+          const result=e.score===1?'Win':e.score===0?'Loss':'Draw'
+          const delta=ratingDelta(e.before,e.after)
+          return '<tr><td><a href="/?game='+safe(e.id)+'" aria-label="Replay '+result.toLowerCase()+' on '+recordDate.format(e.time)+'">'+recordDate.format(e.time)+' <span aria-hidden="true">↗</span></a></td><td><span class="rating-result '+result.toLowerCase()+'">'+result+'</span></td><td>'+Math.round(e.after.rating)+'</td><td class="'+ratingTone(delta)+'">'+signed(delta)+'</td></tr>'
+        }).join('')+'</tbody></table></div></section>')
+    }catch{if(version===request)output.innerHTML='<p class="workspace-empty" role="status">Rating history is unavailable. Try again.</p>'}
+    finally{if(version===request)output.removeAttribute('aria-busy')}
   }
   form.onchange=()=>void refresh()
   await refresh()
@@ -1302,17 +1311,28 @@ async function account(which:string){
   const node=$('#account')!
   history.replaceState({},'', ['profile','friends','admin','stats','watch','leaders','distribution'].includes(which)?'/#'+which:'/')
   if(which==='watch'){
-    const games=await api<{id:string;white:string;black:string;control:Control;rated:boolean}[]>('watch')
-    if(node.isConnected)node.innerHTML='<h1>Watch live games</h1>'+
-      (games.length?'<ul class="watch-list">'+games.map(g=>'<li><a href="/?game='+safe(g.id)+'"><span class="watch-match">'+safe(g.white)+' vs '+safe(g.black)+'</span><small>'+clockLabel(g.control)+(g.rated?' · Rated':'')+'</small></a></li>').join('')+'</ul>':'<p>No public games are in progress.</p>')+
-      (user.account?'<p class="watch-archive">Find your completed ranked games in <a href="/#stats">Rating history</a>.</p>':'')
+    const [games,recent]=await Promise.all([
+      api<{id:string;white:string;black:string;control:Control;rated:boolean}[]>('watch'),
+      user.account?api<ProfilePage>('profile').then(profile=>profile.history.slice(0,3)).catch(()=>[]):[],
+    ])
+    if(node.isConnected)node.innerHTML=workspaceHeading('Watch','Follow live matches or revisit one of your completed games.','r')+
+      '<section class="watch-section"><div class="workspace-section-heading"><h2>'+featureIcon('watch')+' Live games</h2><span class="watch-status'+(games.length?' live':'')+'">'+games.length+' in progress</span></div>'+
+      (games.length?'<ul class="watch-list">'+games.map(g=>'<li><a href="/?game='+safe(g.id)+'"><span class="watch-match"><span class="watch-seat">'+engravedPiece('k','white')+safe(g.white)+'</span><span class="watch-versus">vs</span><span class="watch-seat">'+engravedPiece('k','black')+safe(g.black)+'</span></span><span class="watch-meta"><small>'+clockLabel(g.control)+(g.rated?' · Rated':' · Casual')+'</small>'+featureIcon('play')+'</span></a></li>').join('')+'</ul>':'<div class="workspace-empty"><p>No public games are in progress.</p>'+button('watch','Check again')+'</div>')+'</section>'+
+      '<section class="watch-section"><div class="workspace-section-heading"><h2>'+featureIcon('openings')+' Your replays</h2></div>'+
+      (recent.length?'<ul class="watch-list replay-list">'+recent.map(game=>'<li><a href="/?game='+safe(game.id)+'"><span>'+safe(game.pool)+' · '+safe(game.result)+
+        (game.delta===undefined?'':' <small class="'+ratingTone(game.delta)+'">'+signed(game.delta)+'</small>')+'</span><span class="watch-meta"><small>Replay</small>'+featureIcon('play')+'</span></a></li>').join('')+'</ul>':'')+
+      '<div class="watch-archive"><p>Open a completed game from your profile to review moves and dice rolls.</p>'+
+      (user.account?'<a class="workspace-action" href="/#profile" data-do="profile">Game history ↗</a>':button('sign-in','Sign in to see your games'))+'</div></section>'
   }else if(which==='distribution'){
     await openDistribution(node)
   }else if(which==='stats'){
     await openRatingStats(node)
   }else if(which==='leaders'){
     const records=await api<Record<string,{name:string;rating:number}[]>>('leaders')
-    if(node.isConnected)node.innerHTML='<h1>Leaderboard</h1>'+button('distribution','Rating distribution')+button('stats','My rating history')+Object.entries(records).map(([group,rows])=>'<h2>'+safe(group)+'</h2>'+(rows.length?'<ol>'+rows.map(p=>'<li>'+safe(p.name)+' · '+p.rating+'</li>').join('')+'</ol>':'<p>No established ratings yet.</p>')).join('')
+    if(node.isConnected)node.innerHTML=workspaceHeading('Ratings','Compare the top players by time control.','q')+
+      '<div class="workspace-actions">'+button('distribution','Rating distribution')+button('stats','My rating history')+'</div><div class="leaderboard-grid">'+
+      Object.entries(records).map(([group,rows])=>'<section class="leaderboard-card"><h2>'+featureIcon(poolIcons[group as keyof typeof poolIcons]??'ratings')+safe(group)+'</h2>'+
+        (rows.length?'<ol>'+rows.map(p=>'<li><span>'+safe(p.name)+'</span><strong>'+p.rating+'</strong></li>').join('')+'</ol>':'<p>No established ratings yet.</p>')+'</section>').join('')+'</div>'
   }else if(which==='friends'){
     const list=await api<FriendList>('friends')
     if(node.isConnected){lastFriends=JSON.stringify(list);node.innerHTML=friendsView(list)}
@@ -1747,6 +1767,7 @@ const route=()=>{
   if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
   else if(puzzleId!==null&&/^\d+$/.test(puzzleId)&&Number(puzzleId)<puzzleCount)local('bot',{seconds:0,increment:0},false,Number(puzzleId))
   else if(page==='bots')openBotPicker()
+  else if(page==='settings'){goHome();settings()}
   else if(['profile','friends','admin','stats','watch','leaders','distribution'].includes(page))void account(page).catch(e=>$('#account')?.replaceChildren(e.message))
   else if(location.hash==='#daily')void openDaily().catch(e=>$('#daily-status')?.replaceChildren(e.message))
   else if(mode!=='home'||!root.hasChildNodes()){
