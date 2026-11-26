@@ -3,25 +3,54 @@
   --chess-bar: 66px;
   --chess-border: #675477;
   --chess-focus: #fff0ba;
+  --chess-brass: #e4b788;
   color-scheme: dark;
 }
 
 #site-nav .nav-emblem {
   display: grid;
   place-items: center;
-  flex: 0 0 30px;
-  height: 30px;
-  border: 1px solid #b994c04a;
-  border-radius: 50%;
-  background: #9d73b21a;
-  transition: transform .22s ease, background-color .22s, border-color .22s;
+  flex: 0 0 31px;
+  height: 31px;
+  border: 1px solid #907584;
+  border-radius: 5px;
+  background: linear-gradient(145deg,#544056,#32283e);
+  box-shadow: inset 0 0 0 2px #241b32, 0 2px #191324;
+  transition: background-color .19s, border-color .19s, box-shadow .19s;
+}
+.retro-icon {
+  --icon-size: 24px;
+  display: inline-block;
+  flex: none;
+  inline-size: var(--icon-size);
+  block-size: var(--icon-size);
+  vertical-align: middle;
+  background: url("/after-hours/retro-icons.png") no-repeat;
+  background-size: auto var(--icon-size);
+  background-position: calc(var(--icon-frame) * var(--icon-size) * -1) center;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px #1c142e);
+}
+.guide-hero::after, .workspace-heading::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--chess-brass) 0 0) top left / 11px 1px,
+    linear-gradient(var(--chess-brass) 0 0) top left / 1px 11px,
+    linear-gradient(var(--chess-brass) 0 0) bottom right / 11px 1px,
+    linear-gradient(var(--chess-brass) 0 0) bottom right / 1px 11px;
+  background-repeat: no-repeat;
+  opacity: .65;
 }
 #site-nav :is(a,button):hover .nav-emblem,
 #site-nav [aria-current=page] .nav-emblem {
-  background-color: #8058815c;
-  border-color: #c99cb99e;
+  background: linear-gradient(145deg,#735359,#43314c);
+  border-color: #e9c69d;
+  box-shadow: inset 0 0 0 2px #3e2d43, 0 2px #191324;
 }
-#site-nav :is(a,button):hover .nav-emblem { transform: rotate(-8deg) translateY(-1px); }
+#site-nav [aria-current=page]:is(a,button) { box-shadow: inset 3px 0 #e4b788; border-color: #a58489; }
 #site-nav :is(a,button):focus-visible, #site-menu:focus-visible { outline: 2px solid var(--chess-focus); outline-offset: -2px; }
 
 .guide-site .site-bar, .guide-site #site-nav {
@@ -93,7 +122,7 @@
 }
 .guide-site :is(#site-nav,#site-menu) svg { width: 19px; height: 19px; flex: none; color: #d6bdf0; }
 .guide-site #site-nav a:hover { background: #3b2f4b; border-color: #665170; }
-.guide-site #site-nav [aria-current=page] { background: #493551; border-color: #886586; box-shadow: inset 3px 0 #f3bad4; }
+.guide-site #site-nav [aria-current=page] { background: #493551; border-color: #a58489; box-shadow: inset 3px 0 #e4b788; }
 .guide-site #site-nav [aria-current=page] svg { color: #f3c98b; }
 
 @media (min-width: 1080px) {
@@ -108,5 +137,4 @@
 }
 @media (prefers-reduced-motion: reduce) {
   #site-nav .nav-emblem { transition: none; }
-  #site-nav :is(a,button):hover .nav-emblem { transform: none; }
 }

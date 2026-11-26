@@ -2,14 +2,14 @@ import {puzzleAt,publicPuzzleIds} from '../src/puzzle-book.ts'
 import {at,name,legal,play} from '../src/rules.ts'
 import {mkdir,readFile,writeFile} from 'node:fs/promises'
 import {openings,replayStudy} from '../src/openings.ts'
-import {navIcon,staticSiteNavigation} from '../src/site-navigation.ts'
+import {retroIcon,staticSiteNavigation} from '../src/site-navigation.ts'
 import {engravedPiece} from '../src/piece-art.ts'
 
 const escape=text=>text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;')
-const shellLinks='<link rel="stylesheet" href="/site-navigation.css"><link rel="stylesheet" href="/field-guide.css"><script type="module" src="/guide-nav.js"></script>'+
+const shellLinks='<link rel="stylesheet" href="/site-navigation.css"><link rel="stylesheet" href="/field-guide.css"><link rel="stylesheet" href="/chess-controls.css"><script type="module" src="/guide-nav.js"></script>'+
   '<noscript><style>@media(max-width:1079px){.guide-site #site-menu{display:none}.guide-site #site-nav{position:static;display:block;max-height:none}}</style></noscript>'
 const crest=kind=>`<div class="guide-crest" aria-hidden="true">${engravedPiece(kind,'white')}</div>`
-const emblem=icon=>`<span class="guide-emblem" aria-hidden="true">${navIcon(icon)}</span>`
+const emblem=icon=>`<span class="guide-emblem" aria-hidden="true">${retroIcon(icon)}</span>`
 const guideHero=(title,description,kind,actions='')=>`<header class="guide-hero"><div><h1>${escape(title)}</h1><p>${escape(description)}</p>${actions}</div>${crest(kind)}</header>`
 const card=(title,description,href,icon)=>`<a class="guide-card" href="${href}">${emblem(icon)}<span><strong>${escape(title)}</strong><span>${escape(description)}</span></span><span aria-hidden="true">↗</span></a>`
 const page=(title,description,route,content,{heading=title,intro=description,piece='n',actions=''}={})=>

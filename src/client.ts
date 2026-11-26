@@ -5,7 +5,7 @@ import {ratingDistribution,referenceCounts,referenceDate,referenceSource,type Li
 import './style.css'
 import './after-hours.css'
 import './workspaces.css'
-import {navIcon,navGroup,navLink,sectionLinks,siteHeader} from './site-navigation.ts'
+import {retroIcon,navGroup,navLink,sectionLinks,siteHeader} from './site-navigation.ts'
 import {engravedPiece} from './piece-art.ts'
 import {replayStudy} from './openings.ts'
 import {homeGuide} from './home-guide.ts'
@@ -182,12 +182,12 @@ function connectPresence(){
 function livePanel(){
   return '<div class="queue-preference"><button data-do="quick-clock" aria-controls="clock-groups" aria-pressed="'+flexible+'" '+(queue?'disabled':'')+'>Any popular clock</button>'+
     (flexible&&!queue?'<small class="clock-toggle-hint">Tap again to choose a fixed clock.</small>':'')+'</div>'+
-    '<div id="clock-groups" class="clock-groups'+(flexible?' flexible-clock':'')+'">'+liveGroups.map(([label,indices,icon])=>'<section><h3>'+navIcon(icon)+label+'</h3><div class="clocks">'+clocks([...indices],false)+'</div></section>').join('')+'</div>'+
+    '<div id="clock-groups" class="clock-groups'+(flexible?' flexible-clock':'')+'">'+liveGroups.map(([label,indices,icon])=>'<section><h3>'+retroIcon(icon)+label+'</h3><div class="clocks">'+clocks([...indices],false)+'</div></section>').join('')+'</div>'+
     button('more','Custom clock & untimed','link')+
     (!flexible&&(choice===11||choice>=13)?'<small>Selected: '+(presets[choice].seconds?clockLabel(presets[choice]):'Untimed')+'</small>':'')+
     (session?.account?'<label class="rated"><input id="rated" type="checkbox" '+(rated?'checked':'')+' '+(queue?'disabled':'')+'> Ranked</label>':session?.passkeys?button('sign-in','Sign in for ranked play','link ranked-link'):'')+
     button(queue?'cancel':'queue',queue?'Cancel search':rated?'Find ranked match':flexible?'Quick match':'Find match','primary full')+
-    '<div class="alt launch-actions">'+button('friend','<span>'+navIcon('friends')+'</span>Play a friend')+button('local','<span>'+navIcon('openings')+'</span>Same computer')+button('bot','<span>'+navIcon('bot')+'</span>Practice vs bot')+button('watch','<span>'+navIcon('watch')+'</span>Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p>'
+    '<div class="alt launch-actions">'+button('friend','<span>'+retroIcon('friends')+'</span>Play a friend')+button('local','<span>'+retroIcon('openings')+'</span>Same computer')+button('bot','<span>'+retroIcon('bot')+'</span>Practice vs bot')+button('watch','<span>'+retroIcon('watch')+'</span>Watch games')+'</div><p role="status" id="status">'+safe(status)+'</p>'
 }
 function dailyList(){
   if(!session?.account)return ''
@@ -215,14 +215,14 @@ function landingBoard(){
   }).join('')
   return '<section class="landing-position" aria-labelledby="landing-position-title"><div class="landing-position-head"><h2 id="landing-position-title">First capture</h2><span>White to move</span></div>'+
     '<div class="board '+prefs.theme+'" role="img" aria-label="The white knight on c3 can capture the black pawn on d5.">'+tiles+'</div>'+
-    '<p class="landing-position-note">'+navIcon('dice')+'<span><b>c3 to d5</b> · This capture would trigger the knight’s first roll.</span></p></section>'
+    '<p class="landing-position-note">'+retroIcon('dice')+'<span><b>c3 to d5</b> · This capture would trigger the knight’s first roll.</span></p></section>'
 }
 function home(){
   const hero='<section class="hero"><div class="hero-copy"><h1>Remorse <em>Chess</em></h1><p class="sub">Every capture has consequences.</p><p>Remorse Chess is the chess variant <a href="/history/">from TikTok</a> where each piece rolls a die after its first capture. A piece can freeze, lose the ability to capture, or earn a second move. Play online here or <a href="/rules/">learn the rules</a>.</p>'+
-    '<div class="hero-actions"><a class="link hero-rules" href="#how-to-play">How to play</a>'+button('tutorial',navIcon('play')+' Try the tutorial','link')+'</div></div>'+
+    '<div class="hero-actions"><a class="link hero-rules" href="#how-to-play">How to play</a>'+button('tutorial',retroIcon('play')+' Try the tutorial','link')+'</div></div>'+
     '<div class="hero-art" aria-hidden="true"><img src="/after-hours/horse.webp" width="668" height="712" alt="" fetchpriority="high"></div></section>'
-  const play='<section class="panel launch"><h2><span>'+navIcon('rook')+' Play</span><span id="online-count">'+activityLabel()+'</span></h2><div class="pad">'+
-    '<div class="play-tabs" role="group" aria-label="Play mode"><button data-do="live-tab" aria-pressed="'+(playTab==='live')+'">'+navIcon('blitz')+'Live</button><button data-do="daily-tab" aria-pressed="'+(playTab==='daily')+'">'+navIcon('daily')+'Daily</button></div>'+
+  const play='<section class="panel launch"><h2><span>'+retroIcon('rook')+' Play</span><span id="online-count">'+activityLabel()+'</span></h2><div class="pad">'+
+    '<div class="play-tabs" role="group" aria-label="Play mode"><button data-do="live-tab" aria-pressed="'+(playTab==='live')+'">'+retroIcon('blitz')+'Live</button><button data-do="daily-tab" aria-pressed="'+(playTab==='daily')+'">'+retroIcon('daily')+'Daily</button></div>'+
     (canResume()?button('resume-game','Resume game','primary full'):'')+(playTab==='daily'?dailyPanel():livePanel())+'</div></section>'
   const outcomes=[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')
   return '<main class="home">'+hero+play+landingBoard()+'<section class="outcomes">'+outcomes+'</section>'+homeGuide+'</main>'
@@ -437,7 +437,7 @@ function settings(){
     .map(([key,label])=>'<label><input type="checkbox" data-pref="'+key+'" '+(prefs[key as keyof typeof prefs]?'checked':'')+'>'+label+'</label>').join('')
   const select=(key:'blood'|'speed'|'theme'|'pieces',label:string,opts:string[])=>
     '<label class="select-field">'+label+'<select data-pref="'+key+'">'+opts.map(v=>'<option value="'+v+'" '+(v===prefs[key]?'selected':'')+'>'+v[0].toUpperCase()+v.slice(1)+'</option>').join('')+'</select></label>'
-  const group=(icon:Parameters<typeof navIcon>[0],title:string,fields:string)=>
+  const group=(icon:Parameters<typeof retroIcon>[0],title:string,fields:string)=>
     '<fieldset class="settings-section"><legend>'+featureIcon(icon)+title+'</legend><div class="settings">'+fields+'</div></fieldset>'
   modal('<h2>Settings</h2><div class="settings-layout">'+
     group('openings','Board',select('theme','Board theme',['parchment','slate'])+select('pieces','Piece set',['pixel','classic'])+
@@ -1212,7 +1212,7 @@ async function openDistribution(node:HTMLElement){
   form.onchange=()=>void refresh()
   await refresh()
 }
-const featureIcon=(icon:Parameters<typeof navIcon>[0])=>'<span class="feature-icon">'+navIcon(icon)+'</span>'
+const featureIcon=(icon:Parameters<typeof retroIcon>[0])=>'<span class="feature-icon">'+retroIcon(icon)+'</span>'
 function workspaceHeading(title:string,description:string,piece:Kind){
   return '<header class="workspace-heading"><div><h1>'+title+'</h1><p>'+description+'</p></div><div class="workspace-crest" aria-hidden="true">'+engravedPiece(piece,'white')+'</div></header>'
 }

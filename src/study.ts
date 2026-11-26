@@ -2,7 +2,7 @@ import {matchingOpening,openings,replayStudy} from './openings.ts'
 import {at,captureTarget,legal,moodNames,name,play,type Action,type Game,type Side} from './rules.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'
 import {engravedPiece} from './piece-art.ts'
-import {navIcon} from './site-navigation.ts'
+import {retroIcon} from './site-navigation.ts'
 import './study.css'
 
 const search=document.querySelector<HTMLInputElement>('#opening-search')
@@ -90,12 +90,12 @@ function study(root:HTMLElement,line:string){
       turn+' to move'+(game.bonus!==null?' · Mandatory bonus move':'')+(human?' · Unrated practice':'')
     const choice=(side:Side,label:string)=>'<button data-control="practice-'+side+'">'+engravedPiece('k',side)+'<span>Play as '+label+'</span></button>'
     root.innerHTML='<div class="study-board" role="group" aria-label="Chessboard">'+board.join('')+'</div><div class="study-console">'+
-      '<header class="study-console-head"><h2>'+navIcon('openings')+' Analysis board</h2><p role="status">'+turnStatus+'</p>'+
+      '<header class="study-console-head"><h2>'+retroIcon('openings')+' Analysis board</h2><p role="status">'+turnStatus+'</p>'+
       (opening&&opening[0]!==root.dataset.study?'<p>Transposes to <a href="/openings/'+opening[0]+'/">'+opening[1]+'</a></p>':'')+'</header>'+
       '<section class="study-section"><div class="study-section-heading"><h3>Book playback</h3><span>'+index+' / '+moves.length+'</span></div>'+
       '<div class="study-command-row"><button data-control="back">‹ Back</button><button class="study-next" data-control="next" '+(human||index===moves.length?'disabled':'')+'>Next move ›</button></div>'+
       '<div class="study-command-row"><button data-control="flip">⇅ Flip board</button><button data-control="reset">↺ Reset position</button></div></section>'+
-      '<section class="study-section study-die-section"><label for="study-die">'+navIcon('dice')+' Study die</label><select id="study-die" '+(human?'disabled':'')+'>'+
+      '<section class="study-section study-die-section"><label for="study-die">'+retroIcon('dice')+' Study die</label><select id="study-die" '+(human?'disabled':'')+'>'+
       [1,2,3,4,5,6].map(n=>'<option '+(n===face?'selected':'')+'>'+n+'</option>').join('')+'</select>'+
       (!human&&continuations.length?'<div class="study-continuations"><h3>Try a continuation</h3><div>'+continuations.map(a=>
         '<button data-action="'+actions.indexOf(a)+'">'+(a.type==='end'?'End turn':name(a.from)+'–'+name(a.to))+'</button>').join('')+'</div></div>':'')+'</section>'+

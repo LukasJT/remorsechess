@@ -1,4 +1,4 @@
-:root { --control-border: #9478a0; --positive: #b9e2bf; --negative: #ffadaf; }
+:root { --positive: #b9e2bf; --negative: #ffadaf; }
 
 #site-menu { border-radius: 99px; }
 #site-nav button, #site-nav a { padding-block: 5px; }
@@ -9,15 +9,6 @@
   .site-menu-open #site-nav { position: fixed; inset: var(--chess-bar) 0 auto; z-index: 6; max-height: calc(100dvh - var(--chess-bar)); overflow-y: auto; box-shadow: 0 10px 22px #1410208c; }
 }
 
-select {
-  max-width: 100%;
-  min-height: 42px;
-  padding: .5rem .65rem;
-  border: 1px solid var(--control-border);
-  color-scheme: dark;
-  cursor: pointer;
-}
-select option { background: #342a47; color: var(--paper); }
 input[type=checkbox] { width: 1.12rem; height: 1.12rem; flex: 0 0 1.12rem; margin: 0; cursor: pointer; }
 input[type=range] { min-width: 0; max-width: 100%; }
 button, .workspace-action { overflow-wrap: anywhere; }
@@ -42,6 +33,7 @@ body #modal[data-kind=settings] { width: min(750px,calc(100% - 20px)); }
 .settings-section .settings label:has(input[type=checkbox]) { padding: 9px 10px; border-radius: 7px; cursor: pointer; }
 .settings-section .settings label:has(input[type=checkbox]:checked) { border-color: #a17d9d; background: #49364f; }
 .settings-section .settings label:has(input[type=checkbox]:hover) { border-color: var(--gold); }
+.settings-section input[type=checkbox] { accent-color: var(--chess-brass); }
 .settings-section .select-field { align-items: stretch; flex-direction: column; padding: 3px 2px 6px; }
 .settings-section .volume-field { display: grid; grid-template-columns: auto minmax(0,1fr); }
 
@@ -84,13 +76,13 @@ body #modal[data-kind=settings] { width: min(750px,calc(100% - 20px)); }
   width: min(100%,104px);
   aspect-ratio: 1;
   justify-self: end;
-  border: 1px solid #d2adcd9c;
-  border-radius: 50%;
-  background: #ad82b23a;
-  box-shadow: inset 0 0 0 4px #e3bce637, 0 0 20px #d4a4d44f;
+  border: 1px solid #bf9782;
+  border-radius: 8px;
+  background: linear-gradient(145deg,#6b4d65,#3a2b49);
+  box-shadow: inset 0 0 0 4px #e5b58d34, 0 3px #2b1d39;
 }
 .workspace-crest .engraved-piece { width: 74%; height: 74%; filter: drop-shadow(3px 4px #281b31); transition: transform .34s var(--ease); }
-.workspace-crest svg { width: 48%; height: 48%; color: var(--gold); }
+.workspace-crest .retro-icon { --icon-size: clamp(30px,5vw,60px); }
 .workspace-heading:hover .workspace-crest .engraved-piece { transform: translateY(-3px) rotate(4deg); }
 .feature-icon {
   display: inline-grid;
@@ -98,7 +90,7 @@ body #modal[data-kind=settings] { width: min(750px,calc(100% - 20px)); }
   width: 34px;
   height: 34px;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 6px;
   border: 1px solid #a482ab;
   color: var(--gold);
   background: #4c3755;
@@ -220,8 +212,11 @@ body #modal[data-kind=settings] { width: min(750px,calc(100% - 20px)); }
 #friend-groups h2 { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline; }
 
 .home .landing-position-head > span { padding: .25rem .6rem; border: 1px solid var(--line); border-radius: 99px; text-align: end; }
+.home .hero::after { border-color: #ddad8360; }
+.home .clock-groups h3 .retro-icon, .home .play-tabs .retro-icon { --icon-size: 18px; }
 .home .launch .play-tabs, .home .launch .play-tabs button { border-radius: 99px; }
 .home .launch .clocks button:hover { box-shadow: inset 0 1px #ffe5f048, 0 0 14px #e196c249; }
+.launch-actions button > span { border-radius: 8px; border-color: #ab8787; box-shadow: inset 0 0 0 3px #342743,0 3px #1b1527; }
 .launch-actions button:hover > span { box-shadow: inset 0 0 0 3px #342743, 0 0 15px #efacce4f; }
 .game .crumb { flex-wrap: wrap; }
 .game .crumb button, .game .review button { border-radius: 99px; }

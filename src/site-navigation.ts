@@ -20,6 +20,15 @@ const navIcons={
 }
 export const navIcon=(key:keyof typeof navIcons)=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+navIcons[key]+'</svg>'
 
+const retroIcons: readonly (keyof typeof navIcons)[]=[
+  'play','daily','bot','watch','puzzles','openings','study','rules','rook','ratings',
+  'friends','profile','settings','bullet','blitz','clock','dice',
+]
+export function retroIcon(icon:keyof typeof navIcons){
+  const index=retroIcons.indexOf(icon)
+  return index<0?navIcon(icon):'<span class="retro-icon" aria-hidden="true" style="--icon-frame:'+index+'"></span>'
+}
+
 export const sectionLinks = [
   [
     ['play','Play','/','home'],
@@ -37,7 +46,7 @@ export const sectionLinks = [
 ] as const
 
 export function navLink(icon:keyof typeof navIcons,label:string,href?:string,action?:string,active=false){
-  const content='<span class="nav-emblem">'+navIcon(icon)+'</span><span>'+label+'</span>'
+  const content='<span class="nav-emblem" aria-hidden="true">'+retroIcon(icon)+'</span><span>'+label+'</span>'
   const attributes=(action?' data-do="'+action+'"':'')+(active?' aria-current="page"':'')
   return href?'<a href="'+href+'"'+attributes+'>'+content+'</a>':'<button type="button"'+attributes+'>'+content+'</button>'
 }

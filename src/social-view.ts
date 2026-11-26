@@ -1,6 +1,6 @@
 import {countries,maxBio,maxDisplayName,type FriendList,type PlayerCard,type ProfileDetails} from './social.ts'
 import {countedGames,establishedRating,type Rating} from './rating.ts'
-import {navIcon} from './site-navigation.ts'
+import {retroIcon} from './site-navigation.ts'
 
 export const escapeHTML=(value:unknown)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
 const s=escapeHTML
@@ -99,7 +99,7 @@ export function friendsGroups(list:FriendList){
 export const playerResults=(cards:PlayerCard[])=>cards.length?playerRows(cards):'<p>No matching players found.</p>'
 
 export function friendsView(list:FriendList){
-  return '<header class="workspace-heading"><div><h1>Friends</h1><p>Find players, send requests, and see who’s online.</p></div><div class="workspace-crest" aria-hidden="true">'+navIcon('friends')+'</div></header>'+socialNav('friends')+
+  return '<header class="workspace-heading"><div><h1>Friends</h1><p>Find players, send requests, and see who’s online.</p></div><div class="workspace-crest" aria-hidden="true">'+retroIcon('friends')+'</div></header>'+socialNav('friends')+
     '<form id="friend-search" class="friend-search"><label for="friend-query">Find by username or player ID</label><div><input id="friend-query" name="query" type="search" autocomplete="off" maxlength="39" placeholder="Username or #12" required><button class="primary">Find players</button></div></form>'+
     '<p id="friends-status" role="status"></p><div id="people-results"></div><div id="friend-groups">'+friendsGroups(list)+'</div>'
 }

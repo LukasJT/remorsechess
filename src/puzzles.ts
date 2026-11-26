@@ -1,6 +1,7 @@
 import {puzzleAt,puzzleCount} from './puzzle-book.ts'
 import {at,legal,name,play} from './rules.ts'
 import {engravedPiece} from './piece-art.ts'
+import {retroIcon} from './site-navigation.ts'
 const rolls=['','Devastated','Guilt-ridden','Guilt-ridden','Unaffected','Unaffected','Psychopath']
 type Score={rating:number;done:Record<string,boolean>}
 export async function openPuzzles(modal:(html:string)=>void,user:string|undefined,api:<T>(path:string,data?:unknown)=>Promise<T>,featuredId?:number,workspace?:HTMLElement){
@@ -61,7 +62,8 @@ export async function openPuzzles(modal:(html:string)=>void,user:string|undefine
     const boardMarkup='<div class="puzzle-board" aria-label="Puzzle chessboard">'+squares+'</div>'
     const prompt=message||(game.side==='white'?'White':'Black')+' to move.'
     if(workspace){
-      const modeButtons=(['daily','rated','practice'] as const).map(tab=>'<button type="button" data-mode="'+tab+'" aria-pressed="'+(mode===tab)+'">'+tab[0].toUpperCase()+tab.slice(1)+'</button>').join('')
+      const modeIcons={daily:'daily',rated:'ratings',practice:'puzzles'} as const
+      const modeButtons=(['daily','rated','practice'] as const).map(tab=>'<button type="button" data-mode="'+tab+'" aria-pressed="'+(mode===tab)+'">'+retroIcon(modeIcons[tab])+tab[0].toUpperCase()+tab.slice(1)+'</button>').join('')
       const browse=mode==='practice'?'<label for="practice-choice">Choose a position</label><select id="practice-choice">'+choices.map(p=>'<option value="'+p.id+'" '+(id===p.id?'selected':'')+'>'+p.title+(p.id>=puzzleCount/4?' · Variation '+(1+Math.floor(p.id/(puzzleCount/4))):'')+'</option>').join('')+'</select>':''
       const exhausted=mode==='rated'&&nextRated()===undefined
       workspace.innerHTML='<nav class="puzzle-modes" aria-label="Puzzle mode">'+modeButtons+'</nav>'+
