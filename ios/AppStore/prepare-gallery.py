@@ -28,16 +28,22 @@ extension GameModel {
         case "beginner":
             start(.init(opponent: .bot, difficulty: .rookie))
             tap(12)
+            precondition(selectedActions.contains { $0.to == 28 }, "Rookie game did not start with legal moves")
         case "capture":
             start(.init(opponent: .local))
             for square in [12, 28, 51, 35, 28, 35] { tap(square) }
+            precondition(match.history.last?.roll == 6 && position.bonus != nil, "The first capture did not apply the die roll")
+            let restored = try? GameModel()
+            precondition(restored?.position.snapshot == position.snapshot, "The game did not restore after saving")
         case "friends":
             start(.init(opponent: .local))
             for square in [12, 28, 52, 36, 6, 21, 57, 42, 5, 33, 48] { tap(square) }
+            precondition(match.history.count == 5 && position.side == .black, "Pass and play did not alternate turns")
         case "puzzle":
             switchMode(to: .puzzle)
             openPuzzle(dailyID)
             revealHint()
+            precondition(practice.lesson.id == dailyID && hintSquare != nil, "The daily puzzle or hint did not load")
         default:
             break
         }

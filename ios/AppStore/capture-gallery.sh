@@ -10,20 +10,22 @@ mkdir -p "$output"
 case "$platform" in
   iphone) name="iPhone 17"; runtime="27-0" ;;
   iphone-large) name="iPhone 18 Pro Max"; runtime="27-0" ;;
-  ipad) name="iPad Pro 13-inch (M5)"; runtime="27-0" ;;
+  ipad) name="iPad Pro 13-inch (M5)"; runtime="26-" ;;
   duo) name="iPhone Duo"; runtime="27-1" ;;
 esac
 
 device=$(xcrun simctl list devices available -j | jq -er \
   --arg device "$name" --arg runtime "com.apple.CoreSimulator.SimRuntime.iOS-$runtime" \
-  '.devices[$runtime] | map(select(.name == $device)) | first | .udid // error("Requested simulator was absent")')
-xcrun simctl bootstatus "$device" -b
+  '[.devices | to_entries[] | select(.key | startswith($runtime)) | .value[] | select(.name == $device)] | last | .udid // error("Requested simulator was absent")')
+if ! gtimeout 120 xcrun simctl bootstatus "$device" -b; then
+  xcrun simctl list devices booted
+fi
 xcrun simctl status_bar "$device" override --time "9:41" --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState unplugged --batteryLevel 100 || true
 xcrun simctl install "$device" "$app"
 
 launch_scene() {
   SIMCTL_CHILD_REMORSE_GALLERY_SCENE=$1 xcrun simctl launch --terminate-running-process "$device" "$bundle"
-  sleep 3
+  sleep 8
 }
 
 if [ "$platform" != duo ]; then
