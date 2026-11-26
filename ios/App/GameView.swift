@@ -59,22 +59,14 @@ struct GameView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 11) {
-                header
-                modePicker
-                if model.mode == .puzzle { puzzleBrief }
-                status
-                BoardView(model: model)
-                if model.mode == .game { capturePanel }
-                controls
-                if model.mode == .game { lastMove }
+        GeometryReader { viewport in
+            ScrollView {
+                gameLayout(in: viewport.size)
+                    .padding(.horizontal, 17)
+                    .padding(.top, 8)
+                    .padding(.bottom, 14)
+                    .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 510)
-            .padding(.horizontal, 17)
-            .padding(.top, 8)
-            .padding(.bottom, 14)
-            .frame(maxWidth: .infinity)
         }
         .background {
             RadialGradient(colors: [Palette.glow, Palette.background],
@@ -125,6 +117,48 @@ struct GameView: View {
         .sensoryFeedback(.impact(flexibility: .soft), trigger: model.history.count) {
             old, new in new > old && model.history.last?.roll != nil
         }
+    }
+
+    @ViewBuilder
+    private func gameLayout(in size: CGSize) -> some View {
+        if size.width >= 650 && size.height < size.width * 0.88 {
+            let boardWidth = min(480, size.height - 24, size.width * 0.54)
+            HStack(alignment: .top, spacing: 20) {
+                BoardView(model: model)
+                    .frame(width: max(0, boardWidth))
+                VStack(spacing: 11) {
+                    matchHeading
+                    matchControls
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: 940)
+        } else {
+            let controlsHeight: CGFloat = model.mode == .puzzle ? 315 : 295
+            let boardWidth = size.height < 700 ? max(200, size.height - controlsHeight) : 510
+            VStack(spacing: 11) {
+                matchHeading
+                BoardView(model: model)
+                    .frame(maxWidth: boardWidth)
+                matchControls
+            }
+            .frame(maxWidth: 510)
+        }
+    }
+
+    @ViewBuilder
+    private var matchHeading: some View {
+        header
+        modePicker
+        if model.mode == .puzzle { puzzleBrief }
+        status
+    }
+
+    @ViewBuilder
+    private var matchControls: some View {
+        if model.mode == .game { capturePanel }
+        controls
+        if model.mode == .game { lastMove }
     }
 
     private var header: some View {
