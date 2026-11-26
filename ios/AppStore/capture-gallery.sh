@@ -17,9 +17,14 @@ esac
 device=$(xcrun simctl list devices available -j | jq -er \
   --arg device "$name" --arg runtime "com.apple.CoreSimulator.SimRuntime.iOS-$runtime" \
   '[.devices | to_entries[] | select(.key | startswith($runtime)) | .value[] | select(.name == $device)] | last | .udid // error("Requested simulator was absent")')
-if ! gtimeout 120 xcrun simctl bootstatus "$device" -b; then
-  xcrun simctl list devices booted
-fi
+python3 - "$device" <<'PY'
+import subprocess
+import sys
+try:
+    subprocess.run(["xcrun", "simctl", "bootstatus", sys.argv[1], "-b"], check=True, timeout=150)
+except subprocess.TimeoutExpired:
+    subprocess.run(["xcrun", "simctl", "list", "devices", "booted"], check=True)
+PY
 xcrun simctl status_bar "$device" override --time "9:41" --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState unplugged --batteryLevel 100 || true
 xcrun simctl install "$device" "$app"
 

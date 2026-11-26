@@ -6,13 +6,24 @@ on:
 permissions:
   contents: read
 jobs:
-  capture-duo:
-    runs-on: xcode-27
+  capture:
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 12
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ipad
+            runner: macos-26
+            artifact: gallery-ipad
+          - platform: duo
+            runner: xcode-27
+            artifact: gallery-duo-fixed
     steps:
       - uses: actions/checkout@v5
+      - name: Set Xcode 27.1 for Duo
+        if: matrix.platform == 'duo'
+        run: echo 'DEVELOPER_DIR=/Applications/Xcode_27.1.app/Contents/Developer' >> "$GITHUB_ENV"
       - name: Build the game for capture
         run: |
           xcodebuild -version
@@ -22,11 +33,11 @@ jobs:
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/store-gallery" \
             CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/gallery-build.log" 2>&1 || { cat "$RUNNER_TEMP/gallery-build.log"; exit 1; }
       - name: Capture real gameplay
-        run: bash ios/AppStore/capture-gallery.sh duo
+        run: bash ios/AppStore/capture-gallery.sh "${{ matrix.platform }}"
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: gallery-duo-fixed
+          name: ${{ matrix.artifact }}
           path: ${{ runner.temp }}/gallery-images/*.png
           if-no-files-found: warn
           retention-days: 5
