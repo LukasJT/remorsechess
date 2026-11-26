@@ -1,0 +1,36 @@
+name: Store gallery simulator captures
+on:
+  push:
+    branches:
+      - codex/store-gallery-captures
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: xcode-27
+    timeout-minutes: 14
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [iphone, iphone-large, ipad, duo]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the game for capture
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available
+          python3 ios/AppStore/prepare-gallery.py
+          xcodebuild -project ios/RemorseChess.xcodeproj -scheme RemorseChess -configuration Release \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/store-gallery" \
+            CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/gallery-build.log" 2>&1 || { cat "$RUNNER_TEMP/gallery-build.log"; exit 1; }
+      - name: Capture real gameplay
+        run: bash ios/AppStore/capture-gallery.sh "${{ matrix.platform }}"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: gallery-${{ matrix.platform }}
+          path: ${{ runner.temp }}/gallery-images/*.png
+          if-no-files-found: warn
+          retention-days: 5
