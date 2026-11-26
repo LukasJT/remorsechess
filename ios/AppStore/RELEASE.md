@@ -18,6 +18,7 @@ Use a physical iPhone and iPad with the signed build. For account checks, use an
 2. In the app's Online tab, sign in with the existing account's passkey. Repeat with an existing password account and with an email sign-in link. Open an email link from Mail and a game invitation from another app to verify both links open in Remorse Chess.
 3. From Online options, open Profile and game history and then Rating history. Verify the player ID, rating, and saved replay match the website. Switch to Offline and back and relaunch to confirm the Online session is still signed in.
 4. Play a private online game with a consenting tester. Verify moves and dice rolls on both devices.
+5. Create a disposable account and use Online options → Profile and game history → Delete account. Confirm that the app signs out, the receipt reports completion, and the original sign-in no longer works. Use a separate reviewer account for App Review.
 
 ## App Store information
 
@@ -35,8 +36,13 @@ Use the checked-in [iPhone and iPad simulator screenshots](Screenshots/README.md
 
 ## Before submitting for review
 
-- Add an approved public privacy policy and support URL to App Store Connect. Disclose the data used by the live service and any sponsor ads loaded by the Online tab. The app's privacy manifest declares on-device settings access.
-- The Online tab offers website signup. Apple requires an in-app way to initiate account deletion. This repository still needs that flow and a retention decision for shared match records before public submission.
-- Provide App Review with a dedicated review account via the secure submission form. Use a working sign-in method reviewers can complete and confirm the production service remains available during review.
+- Verify that the review changes are live on RemorseChess.com. Check that **Delete account** appears in Online options → Profile and game history and the Online tab excludes browser sponsor ads.
+- Add the [privacy policy](https://remorsechess.com/privacy/) and [support page](https://remorsechess.com/support/) to App Store Connect after both are live and the owner has verified their contents. Complete App Privacy using the live service's actual practices. Inventory account identifiers, contact information, credentials, optional user content, gameplay and friends, and provider request logs. The privacy manifest describes the native app's use of local settings.
+- Create a dedicated reviewer account on the live site with email and password access and a saved replay. Provide the login only in the App Review Information fields. Keep the account active throughout review. Provide a second disposable account if you want reviewers to test deletion without losing their main login.
+- Verify the screenshots match the submitted app. Complete the age rating and export compliance questions with the account owner's verified answers. Select the processed build after the device checks and submit the version for review.
+
+### Review notes
+
+Offline opens a native chess board with computer opponents, same-device play, and puzzles. For online features, open Online and sign in using the email and password in the review credentials. Open Online options → Profile and game history to see a saved game, or Online options → Rating history to see ratings. The app and website share the same Remorse Chess account. To request deletion on a disposable account, open Online options → Profile and game history → Delete account within 15 minutes of signing in, type DELETE, and confirm. A receipt page shows the deletion status.
 
 [Apple App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/) · [Account deletion requirement](https://developer.apple.com/help/app-review/guideline-reference/5-1-1-account-deletion/)
