@@ -8,17 +8,15 @@ permissions:
 jobs:
   capture:
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 12
+    if: github.ref == 'refs/heads/codex/store-gallery-captures'
+    timeout-minutes: 19
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: ipad
-            runner: macos-26
-            artifact: gallery-ipad
           - platform: duo
             runner: xcode-27
-            artifact: gallery-duo-fixed
+            artifact: gallery-duo-inner-fixed
     steps:
       - uses: actions/checkout@v5
       - name: Set Xcode 27.1 for Duo
@@ -33,6 +31,8 @@ jobs:
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/store-gallery" \
             CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/gallery-build.log" 2>&1 || { cat "$RUNNER_TEMP/gallery-build.log"; exit 1; }
       - name: Capture real gameplay
+        env:
+          REMORSE_DUO_PANEL: inner
         run: bash ios/AppStore/capture-gallery.sh "${{ matrix.platform }}"
       - uses: actions/upload-artifact@v6
         if: always()

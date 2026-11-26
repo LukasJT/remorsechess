@@ -46,14 +46,13 @@ git clone -q https://github.com/skarol/duoctl.git "$RUNNER_TEMP/duoctl"
 git -C "$RUNNER_TEMP/duoctl" checkout -q c6ff3e961a9858fb061907448e702d7d1617dc4a
 duoctl="$RUNNER_TEMP/duoctl/bin/duoctl"
 launch_scene capture
-for panel in outer inner; do
+for panel in ${REMORSE_DUO_PANEL:-outer inner}; do
   if [ "$panel" = outer ]; then
     "$duoctl" -d "$device" close
   else
     "$duoctl" -d "$device" open
   fi
-  for scene in capture puzzle friends; do
-    launch_scene "$scene"
-    "$duoctl" -d "$device" screenshot "$output/$panel-$scene.png"
-  done
+  "$duoctl" -d "$device" screenshot "$output/$panel-capture.png"
+  launch_scene friends
+  "$duoctl" -d "$device" screenshot "$output/$panel-friends.png"
 done
