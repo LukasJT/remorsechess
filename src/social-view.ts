@@ -44,7 +44,10 @@ export function profileView(profile:ProfilePage,linkEmail:boolean,admin=false,re
     (card.bio?'<p class="profile-bio">'+s(card.bio)+'</p>':'')+'<dl class="profile-ratings">'+ratings+'</dl><a href="/#stats" data-do="stats">Rating history</a>'+
     '<h2>Game history</h2>'+(history?'<ul class="profile-history">'+history+'</ul>':'<p>No completed games yet.</p>')+
     '<div class="tools profile-tools">'+(linkEmail?'<button data-do="link-email">Add email sign-in</button>':'')+
-    (resetPassword?'<button data-do="email-reset">Set or reset password</button>':'')+'<button data-do="logout">Sign out</button></div>'
+    (resetPassword?'<button data-do="email-reset">Set or reset password</button>':'')+'<button data-do="logout">Sign out</button></div>'+
+    '<section class="account-deletion" aria-labelledby="account-deletion-heading"><h2 id="account-deletion-heading">Account deletion</h2>'+
+    '<p>Permanently remove your profile, sign-in methods, and personal game and rating history.</p>'+
+    '<button type="button" data-do="delete-account" class="danger-action">Delete account</button></section>'
 }
 
 export function profileEditor(profile:ProfilePage){

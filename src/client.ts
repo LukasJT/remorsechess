@@ -99,7 +99,7 @@ function sponsorFrame(format:string,title:string){
   return '<aside class="sponsor"><span>Advertisement</span><iframe title="'+title+'" loading="lazy" sandbox="allow-scripts allow-popups allow-same-origin" referrerpolicy="origin" src="'+sponsorOrigin+'/banner/'+format+'"></iframe></aside>'
 }
 function renderSponsor(){
-  if(location.hostname!=='remorsechess.com')return
+  if(location.hostname!=='remorsechess.com'||navigator.userAgent.includes('RemorseChess-iOS'))return
   const width=document.documentElement.clientWidth
   const inMatch=Boolean(m&&(mode==='online'||mode==='local'||mode==='bot'))
   const tallEnough=!matchMedia('(max-height: 540px)').matches
@@ -324,7 +324,7 @@ function render(){
     {top:oldLog.scrollTop,atEnd:oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<24}:null
   root.innerHTML=siteHeader(true)+siteNavigation()+(mode==='home'?home():mode==='bot-picker'?botPicker():mode==='account'?'<main class="panel account'+(['friends','profile','admin'].includes(accountTab)?' social-account':'')+
     '" id="account" data-page="'+safe(accountTab)+'">Loading…</main>':game())+
-    '<footer>REMORSE CHESS '+button('about','About & privacy')+' <a href="https://github.com/LukasJT/remorsechess/issues">Feedback</a></footer><dialog id="modal"></dialog>'
+    '<footer>REMORSE CHESS '+button('about','About')+' <a href="/privacy/">Privacy</a> <a href="/support/">Support</a></footer><dialog id="modal"></dialog>'
   setSiteMenu(false)
   renderSponsor()
   if(mode==='account'&&accountView?.dataset.page===accountTab)$('#account')?.replaceWith(accountView)
@@ -368,6 +368,44 @@ function modal(html:string,kind=''){
   d.removeAttribute('aria-labelledby')
   d.innerHTML='<form method="dialog" class="close"><button aria-label="Close">×</button></form>'+html
   if(!d.open)d.showModal()
+}
+function confirmAccountDeletion(){
+  modal('<h2 id="deletion-title">Delete account</h2><p>This permanently removes your account, profile, ratings, and sign-in methods. '+
+    'Your opponents keep their game records. Shared replays display “Deleted player” in place of your name.</p>'+
+    '<p>For security, sign in within 15 minutes before making this request.</p>'+
+    '<form id="delete-account" class="profile-edit"><label>Type DELETE to confirm<input name="confirm" maxlength="6" pattern="DELETE" '+
+    'autocomplete="off" autocapitalize="characters" spellcheck="false" required></label>'+
+    '<button class="danger-action">Permanently delete account</button><p id="delete-account-status" role="status"></p></form>','account-deletion')
+  $('#modal')?.setAttribute('aria-labelledby','deletion-title')
+}
+async function deleteAccount(form:HTMLFormElement){
+  const submit=form.querySelector('button')!
+  const message=form.querySelector('#delete-account-status')!
+  const confirm=String(new FormData(form).get('confirm')??'')
+  submit.disabled=true
+  message.textContent='Requesting deletion…'
+  try{
+    const result=await api<{receipt:string}>('auth/delete-account',{confirm})
+    remember(savedRoom,null)
+    history.replaceState({},'','/#account-deletion='+result.receipt)
+    location.reload()
+  }catch(error){
+    message.textContent=error instanceof Error?error.message:'Unable to request account deletion.'
+    submit.disabled=false
+  }
+}
+async function accountDeletionReceipt(receipt:string){
+  render()
+  modal('<h2 id="deletion-title">Account deletion</h2><p id="delete-account-status" role="status">Checking your request…</p>'+
+    '<p>Bookmark this page to check the status for up to 30 days.</p>'+button('check-deletion','Check status'),'deletion-receipt')
+  $('#modal')?.setAttribute('aria-labelledby','deletion-title')
+  const message=$('#delete-account-status')!
+  try{
+    const result=await api<{done:boolean}>('account-deletion/'+receipt)
+    message.textContent=result.done?'Your account deletion is complete.':'Your account is signed out and deletion is in progress.'
+  }catch(error){
+    message.textContent=error instanceof Error?error.message:'Unable to check the deletion request.'
+  }
 }
 function showResult(celebrate=false){
   if(!m?.game.result||mode==='home'||mode==='account')return
@@ -1507,7 +1545,7 @@ async function handle(action:string){
     case 'daily-invite':await dailyAction('invite');return
     case 'daily-cancel':await dailyAction('cancel');return
     case 'rules':modal('<h2>How to play</h2>'+rulesText(mode==='home'||mode==='account'?undefined:m?.game.rulesVersion)+button('tutorial','Try the tutorial','primary'));return
-    case 'about':modal('<h2>About & privacy</h2><p>Remorse Chess uses cookies to keep your online seat. Game links can be viewed by anyone with the link. Ranked accounts store your player name, passkey public key or verified email record, rating and game history. Signed-in players can see your profile details, and accepted friends can see when you are online. When enabled, the sponsor banner is provided by Adsterra and connects to its ad network.</p><p>The board uses engraved chess pieces and original pixel sprites. Game sounds are synthesized.</p><a href="https://github.com/LukasJT/remorsechess">Source & feedback</a>');return
+    case 'about':modal('<h2>About Remorse Chess</h2><p>The board uses engraved chess pieces and original pixel sprites. Game sounds are synthesized.</p><p><a href="/privacy/">Privacy policy</a> · <a href="/support/">Support</a> · <a href="https://github.com/LukasJT/remorsechess">Source code</a></p>');return
     case 'settings':settings();return
     case 'quiet':prefs={...prefs,volume:0,blood:'off',shake:false,flash:false,motion:true};savePrefs();render();return
     case 'more':if(!queue)clocksDialog();return
@@ -1519,6 +1557,12 @@ async function handle(action:string){
       return
     }
     case 'edit-profile':if(myProfile)modal(profileEditor(myProfile),'profile-edit');return
+    case 'delete-account':if(myProfile)confirmAccountDeletion();return
+    case 'check-deletion':{
+      const receipt=new URLSearchParams(location.hash.slice(1)).get('account-deletion')
+      if(receipt&&/^[a-f0-9]{32}$/.test(receipt))await accountDeletionReceipt(receipt)
+      return
+    }
     case 'private-profile':modal('<h2>This profile is private.</h2>');return
     case 'opponent-profile':if(id)showPlayer(await api<PlayerCard>('room/'+id+'/player'));return
     case 'logout':await api('auth/logout',{});location.assign('/');return
@@ -1652,6 +1696,7 @@ root.addEventListener('change',event=>{
 root.addEventListener('submit',event=>{
   const form=event.target as HTMLFormElement
   if(form.id==='profile-edit'){event.preventDefault();void saveProfile(form);return}
+  if(form.id==='delete-account'){event.preventDefault();void deleteAccount(form);return}
   if(form.id==='friend-search'){event.preventDefault();void findPlayers(form);return}
   if(form.id==='admin-search'){
     event.preventDefault()
@@ -1764,7 +1809,9 @@ const route=()=>{
   const gameId=new URLSearchParams(location.search).get('game')
   const puzzleId=new URLSearchParams(location.search).get('practice-puzzle')
   const page=location.hash.slice(1)
-  if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
+  const receipt=new URLSearchParams(page).get('account-deletion')
+  if(receipt&&/^[a-f0-9]{32}$/.test(receipt))void accountDeletionReceipt(receipt)
+  else if(gameId&&/^[a-f0-9]{32}$/.test(gameId))void online(gameId).catch(e=>tell(e.message))
   else if(puzzleId!==null&&/^\d+$/.test(puzzleId)&&Number(puzzleId)<puzzleCount)local('bot',{seconds:0,increment:0},false,Number(puzzleId))
   else if(page==='bots')openBotPicker()
   else if(page==='settings'){goHome();settings()}

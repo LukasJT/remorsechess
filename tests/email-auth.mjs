@@ -115,6 +115,73 @@ try {
   await check(signIn,{email,password:replacement})
 
   console.log('Email auth passed: signup, cross-device access, password sign-in, link sign-in, reset, and legacy accounts.')
+
+  const waitFor=async (read,description)=>{
+    for(let attempt=0;attempt<120;attempt++){
+      const value=await read()
+      if(value)return value
+      await new Promise(resolve=>setTimeout(resolve,200))
+    }
+    throw Error(description)
+  }
+  const deleteAccount='auth/delete-account'
+  const anonymous=browser()
+  await anonymous('session')
+  await anonymous(deleteAccount,{confirm:'DELETE'},401)
+  await check(deleteAccount,{confirm:'delete'},400)
+
+  const rival=await fresh('profile')
+  const profile=await check('profile')
+  await check('friends',{action:'add',handle:rival.handle})
+  await fresh('friends',{action:'accept',handle:profile.handle})
+  const clock={seconds:349,increment:2,rated:true}
+  assert.equal((await check('queue',clock)).queued,true)
+  const matchID=(await fresh('queue',clock)).id
+  const room='room/'+matchID
+  const initial=await check(room)
+  const white=initial.seat==='white'?check:fresh
+  const black=white===check?fresh:check
+  const command=(player,version,action)=>player(room+'/command',{id:crypto.randomUUID(),version,action})
+  const first=await command(white,initial.match.version,{type:'move',from:12,to:28})
+  const response=await command(black,first.match.version,{type:'move',from:51,to:35})
+  const capture=await command(white,response.match.version,{type:'move',from:28,to:35})
+  assert.ok(capture.match.log.length>=3)
+  await command(check,capture.match.version,{type:'resign'})
+  const opponentBefore=await waitFor(async()=>{
+    const account=await fresh('profile')
+    return account.history[0]?.id===matchID?account:null
+  },'Ranked game was never saved')
+  assert.ok(opponentBefore.ratings.Blitz.games>0)
+  const replayBefore=await anonymous(room)
+  const ratingBefore=await fresh('rating-history?pool=Blitz')
+
+  const deletion=await check(deleteAccount,{confirm:'DELETE'},202)
+  assert.match(deletion.receipt,/^[a-f0-9]{32}$/)
+  assert.equal((await check('session')).account,false)
+  assert.equal((await phone('session')).account,false)
+  await phone('profile',undefined,401)
+  await phone(signIn,{email,password:replacement},401)
+  await fresh('player/'+profile.handle,undefined,404)
+  await waitFor(async()=>(await anonymous('account-deletion/'+deletion.receipt)).done,'Deletion receipt did not complete')
+
+  const opponentAfter=await fresh('profile')
+  assert.equal(opponentAfter.user.id,opponentBefore.user.id)
+  assert.deepEqual(opponentAfter.ratings,opponentBefore.ratings)
+  assert.deepEqual(opponentAfter.history,opponentBefore.history)
+  assert.deepEqual(await fresh('rating-history?pool=Blitz'),ratingBefore)
+  assert.ok(!(JSON.stringify(await fresh('friends'))).includes(profile.handle))
+  const replayAfter=await anonymous(room)
+  assert.deepEqual(replayAfter.match,replayBefore.match)
+  assert.equal(replayAfter.room[initial.seat],'Deleted player')
+  assert.notEqual(replayAfter.room[initial.seat==='white'?'black':'white'],'Deleted player')
+  assert.ok(!JSON.stringify(replayAfter).includes(profile.handle))
+  await desktop(start,{email,purpose:'signup'})
+  const newSignup=codeFor(email)
+  assert.equal((await desktop(inspect,{code:newSignup})).kind,'signup')
+  await desktop(finish,{code:newSignup,name:'ReturningPlayer',password})
+  assert.notEqual((await desktop('profile')).user.id,id)
+
+  console.log('Account deletion passed: explicit confirmation, revocation, profile and friends removal, anonymized replays, and unaffected opponent ratings and history.')
 }finally{
   await mf.dispose()
 }

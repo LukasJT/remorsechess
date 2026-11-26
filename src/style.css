@@ -101,6 +101,11 @@ dialog{width:min(520px,calc(100% - 24px));max-height:90dvh;overflow:auto;backgro
 .profile-history { padding-inline-start: 1.2rem; }
 .profile-history li { margin: .45rem 0; }
 .profile-tools { margin-top: 1rem; }
+.account-deletion { border-top: 1px solid #7f636d; margin-top: 1.5rem; padding-top: 1rem; }
+.account-deletion h2 { margin-top: 0; }
+.danger-action { color: #ffe1db; border-color: #b57169; min-height: 44px; }
+.danger-action:hover:not(:disabled) { background: #532d33; border-color: #e7a398; }
+#delete-account-status:empty { display: none; }
 .profile-edit { display: grid; gap: .85rem; }
 .profile-edit label { display: grid; gap: .35rem; }
 .profile-disclosure { color: var(--muted); margin: 0; overflow-wrap: anywhere; }
