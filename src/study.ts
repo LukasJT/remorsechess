@@ -10,9 +10,12 @@ const empty=document.querySelector<HTMLElement>('#opening-empty')
 search?.addEventListener('input',()=>{
   const query=search.value.trim().toLowerCase()
   let matches=0
-  for(const row of document.querySelectorAll<HTMLElement>('#opening-list li')){
-    row.hidden=!row.textContent.toLowerCase().includes(query)
-    if(!row.hidden)matches++
+  for(const group of document.querySelectorAll<HTMLElement>('.opening-group')){
+    const rows=[...group.querySelectorAll('li')]
+    for(const row of rows)row.hidden=!row.textContent.toLowerCase().includes(query)
+    const shown=rows.filter(row=>!row.hidden).length
+    group.hidden=shown===0
+    matches+=shown
   }
   if(empty)empty.hidden=matches>0
 })
@@ -65,6 +68,8 @@ function study(root:HTMLElement,line:string){
   function draw(){
     const active=document.activeElement
     const focus=active instanceof HTMLButtonElement&&root.contains(active)?active.dataset.control:undefined
+    const dieFocused=active?.id==='study-die'
+    const logOpen=Boolean(root.querySelector('details[open]'))
     const game=position()
     const opening=matchingOpening(game)
     const actions=legal(game)
@@ -72,20 +77,39 @@ function study(root:HTMLElement,line:string){
     const board=Array.from({length:64},(_,i)=>{
       const square=flipped?7-(i%8)+Math.floor(i/8)*8:i%8+(7-Math.floor(i/8))*8
       const piece=at(game,square)
-      const description=name(square)+(piece?' '+piece.side+' '+piece.kind+(piece.roll?' '+moodNames[piece.mood]:''):'')
-      return '<button type="button" data-square="'+square+'" class="'+((i%8+Math.floor(i/8))%2?'dark':'light')+'" aria-label="'+description+'" aria-pressed="'+(selected===square)+'" '+(options.some(a=>a.type!=='end'&&a.to===square)?'data-target':'')+'>'+(piece?engravedPiece(piece.kind,piece.side):'')+'</button>'
+      const coordinate=name(square)
+      const description=coordinate+(piece?' '+piece.side+' '+piece.kind+(piece.roll?' '+moodNames[piece.mood]:''):'')
+      const edges=(i%8===0?'<span class="study-rank" aria-hidden="true">'+coordinate[1]+'</span>':'')+
+        (i>=56?'<span class="study-file" aria-hidden="true">'+coordinate[0]+'</span>':'')
+      return '<button type="button" data-square="'+square+'" class="'+((i%8+Math.floor(i/8))%2?'dark':'light')+'" aria-label="'+description+'" aria-pressed="'+(selected===square)+'" '+(options.some(a=>a.type!=='end'&&a.to===square)?'data-target':'')+'>'+(piece?engravedPiece(piece.kind,piece.side):'')+edges+'</button>'
     })
     const continuations=actions.filter(a=>a.type!=='end'&&(game.bonus!==null||captureTarget(game,a))).slice(0,12)
+    const outcome=game.result?.winner==='white'?'White':game.result?.winner==='black'?'Black':''
+    const turn=game.side==='white'?'White':'Black'
+    const turnStatus=game.result?(outcome?outcome+' wins':'Draw')+' · '+game.result.reason:
+      turn+' to move'+(game.bonus!==null?' · Mandatory bonus move':'')+(human?' · Unrated practice':'')
+    const choice=(side:Side,label:string)=>'<button data-control="practice-'+side+'">'+engravedPiece('k',side)+'<span>Play as '+label+'</span></button>'
     root.innerHTML='<div class="study-board" role="group" aria-label="Chessboard">'+board.join('')+'</div><div class="study-console">'+
-      '<h2><span class="guide-emblem">'+navIcon('openings')+'</span> Analysis board</h2>'+
-      '<p role="status">'+(game.result?(game.result.winner?(game.result.winner==='white'?'White':'Black')+' wins':'Draw')+' · '+game.result.reason:(game.side==='white'?'White':'Black')+' to move'+(game.bonus!==null?' · Mandatory bonus move':'')+(human?' · Unrated practice':''))+'</p>'+
-      (opening&&opening[0]!==root.dataset.study?'<p>Transposes to <a href="/openings/'+opening[0]+'/">'+opening[1]+'</a></p>':'')+
-      '<div class="study-controls"><button class="study-round" data-control="back" aria-label="Back" title="Back">‹</button><button data-control="next" '+(human||index===moves.length?'disabled':'')+'>Next book move</button><button class="study-round" data-control="flip" aria-label="Flip board" title="Flip board">⇅</button><button class="study-round" data-control="reset" aria-label="Reset" title="Reset">↺</button>'+
-      '<label>Study die <select id="study-die" '+(human?'disabled':'')+'>'+[1,2,3,4,5,6].map(n=>'<option '+(n===face?'selected':'')+'>'+n+'</option>').join('')+'</select></label></div>'+
-      '<div class="study-controls"><label>Practice level <select id="study-level">'+(['rookie','tactical','expert'] as const).map(level=>'<option value="'+level+'" '+(level===difficulty?'selected':'')+'>'+difficulties[level].name+'</option>').join('')+'</select></label><button data-control="practice-white">Play from here as White</button><button data-control="practice-black">Play from here as Black</button></div>'+
-      (!human&&continuations.length?'<div class="study-controls"><strong>Try a continuation</strong>'+continuations.map(a=>'<button data-action="'+actions.indexOf(a)+'">'+(a.type==='end'?'End turn':name(a.from)+'–'+name(a.to))+'</button>').join('')+'</div>':'')+
-      '<details><summary>Moves and events</summary>'+(notes.length>1?'<ol>'+notes.slice(1).map(note=>'<li>'+note+'</li>').join('')+'</ol>':'<p>No moves yet.</p>')+'</details></div>'
-    if(focus)root.querySelector<HTMLButtonElement>('[data-control="'+focus+'"]:not(:disabled)')?.focus()
+      '<header class="study-console-head"><h2>'+navIcon('openings')+' Analysis board</h2><p role="status">'+turnStatus+'</p>'+
+      (opening&&opening[0]!==root.dataset.study?'<p>Transposes to <a href="/openings/'+opening[0]+'/">'+opening[1]+'</a></p>':'')+'</header>'+
+      '<section class="study-section"><div class="study-section-heading"><h3>Book playback</h3><span>'+index+' / '+moves.length+'</span></div>'+
+      '<div class="study-command-row"><button data-control="back">‹ Back</button><button class="study-next" data-control="next" '+(human||index===moves.length?'disabled':'')+'>Next move ›</button></div>'+
+      '<div class="study-command-row"><button data-control="flip">⇅ Flip board</button><button data-control="reset">↺ Reset position</button></div></section>'+
+      '<section class="study-section study-die-section"><label for="study-die">'+navIcon('dice')+' Study die</label><select id="study-die" '+(human?'disabled':'')+'>'+
+      [1,2,3,4,5,6].map(n=>'<option '+(n===face?'selected':'')+'>'+n+'</option>').join('')+'</select>'+
+      (!human&&continuations.length?'<div class="study-continuations"><h3>Try a continuation</h3><div>'+continuations.map(a=>
+        '<button data-action="'+actions.indexOf(a)+'">'+(a.type==='end'?'End turn':name(a.from)+'–'+name(a.to))+'</button>').join('')+'</div></div>':'')+'</section>'+
+      '<section class="study-section"><h3>Practice vs bot</h3><label class="study-level" for="study-level"><span>Level</span><select id="study-level">'+
+      (['rookie','tactical','expert'] as const).map(level=>'<option value="'+level+'" '+(level===difficulty?'selected':'')+'>'+difficulties[level].name+'</option>').join('')+
+      '</select></label><div class="study-command-row">'+choice('white','White')+choice('black','Black')+'</div></section>'+
+      '<details class="study-events"'+(logOpen?' open':'')+'><summary>Moves and events</summary>'+
+      (notes.length>1?'<ol>'+notes.slice(1).map(note=>'<li>'+note+'</li>').join('')+'</ol>':'<p>No moves yet.</p>')+'</details></div>'
+    for(const ply of document.querySelectorAll<HTMLElement>('[data-book-ply]')){
+      if(Number(ply.dataset.bookPly)===index)ply.setAttribute('aria-current','step')
+      else ply.removeAttribute('aria-current')
+    }
+    if(dieFocused)root.querySelector<HTMLElement>('#study-die')?.focus({preventScroll:true})
+    if(focus)root.querySelector<HTMLButtonElement>('[data-control="'+focus+'"]:not(:disabled)')?.focus({preventScroll:true})
   }
   root.addEventListener('change',event=>{
     if(!(event.target instanceof HTMLSelectElement))return
@@ -124,7 +148,7 @@ function study(root:HTMLElement,line:string){
         button.onclick=()=>step(choice)
         picker.appendChild(button)
       }
-      root.appendChild(picker);picker.querySelector('button')?.focus();return
+      root.querySelector('.study-console')?.appendChild(picker);picker.querySelector('button')?.focus();return
     }
     selected=at(game,target)?.side===game.side?target:null
     draw()
