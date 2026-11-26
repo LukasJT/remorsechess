@@ -2,10 +2,10 @@
 
 ## App identity and signing
 
-- Bundle ID `com.remorsechess.ios`, marketing version 1.0, build 1. Use the next unused build number for each upload.
+- The [RemorseChess.com App Store Connect record](https://appstoreconnect.apple.com/apps/6838933038/distribution) uses bundle ID `com.remorsechess.ios` on team `35F2V4A65C`. The project targets marketing version 1.0, build 1. Use the next unused build number for each upload.
 - The app supports iPhone and iPad on iOS 17 or later. Archive with Xcode 26 or later and the iOS 26 SDK or later.
-- Select the Apple Developer team that owns the Remorse Chess app record. Enable Associated Domains for its bundle identifier. Select that team in Xcode and let Xcode manage signing.
-- Configure `IOS_APP_TEAM_ID` on the existing production Remorse Chess Worker when deploying the association endpoint. Verify `https://remorsechess.com/.well-known/apple-app-site-association` answers directly with JSON and names the signed app in both `webcredentials` and `applinks`. Keep the existing `LOBBY` and `ROOMS` namespaces and account secrets when deploying.
+- Sign in to Xcode with access to the owning Apple Developer team. Automatic signing is already selected for the app target. Confirm the generated provisioning profile supports Associated Domains.
+- The website serves the association as a static asset. Verify `https://remorsechess.com/.well-known/apple-app-site-association` returns JSON directly and lists the signed app in both `webcredentials` and `applinks`. Compare that identity with the `application-identifier` entitlement in the signed archive.
 - Archive the Release scheme from Xcode with an iOS device destination. Upload the signed archive to the corresponding App Store Connect record, then confirm the processed build appears in TestFlight.
 
 [Apple upload requirements](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds) · [Associated Domains](https://developer.apple.com/documentation/xcode/supporting-associated-domains)

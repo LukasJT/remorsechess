@@ -21,7 +21,7 @@ xcodebuild -project ios/RemorseChess.xcodeproj -scheme RemorseChess \
 
 The Online tab uses the existing RemorseChess.com account directly. Sign in with the same method you use on the site to load the same profile, ratings, and game history. **Online options** links directly to **Profile and game history** and **Rating history**. Use **Open game or email link** to paste a Remorse Chess invitation or email link into the app.
 
-The Xcode target includes the `webcredentials:remorsechess.com` and `applinks:remorsechess.com` entitlements. The Worker serves the matching Apple App Site Association response when `IOS_APP_TEAM_ID` is configured on the production Worker. That activates passkeys inside the Online tab and lets the system route invitation and email links to the app once Apple has validated the association. **Open in Safari view** offers a separate browsing session during development. [Apple’s Associated Domains documentation](https://developer.apple.com/documentation/xcode/supporting-associated-domains)
+The Xcode target includes the `webcredentials:remorsechess.com` and `applinks:remorsechess.com` entitlements. The website’s Apple App Site Association file links the production domain to the signed app. Apple uses that association for passkeys in the Online tab and to route invitation and email links. **Open in Safari view** offers a separate browsing session during development. [Apple’s Associated Domains documentation](https://developer.apple.com/documentation/xcode/supporting-associated-domains)
 
 ## Engine
 

@@ -13,7 +13,7 @@ import { emptyDetails,maxProfileBody,parseProfileEdit,validHandle,validPlayerNum
 import type { AdminUser, AdminUsers } from './admin.ts'
 
 type Limit = {limit(input:{key:string}):Promise<{success:boolean}>}
-interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string; ADMIN_EMAIL?:string; IOS_APP_TEAM_ID?:string }
+interface Env { EMAIL_LIMIT:Limit; GAME_LIMIT:Limit; WRITE_LIMIT:Limit; ASSETS:Fetcher; ROOMS:DurableObjectNamespace<Room>; LOBBY:DurableObjectNamespace<Lobby>; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; RESEND_API_KEY?:string; ADMIN_EMAIL?:string }
 type Identity = { id:string; name:string; account:boolean }
 const qaHandles=new Set(['qa-a-0823ec19','qa-a-09ee2116','qa-b-0823ec19','qa-b-09ee2116'])
 const privateHandles=new Set(['test','natalie','lukas','evan'])
@@ -1107,15 +1107,6 @@ export default {
       return Response.redirect(url.href,308)
     }
     if(!url.pathname.startsWith('/api/')){
-      if(url.pathname==='/.well-known/apple-app-site-association'){
-        const team=env.IOS_APP_TEAM_ID
-        if(url.hostname!=='remorsechess.com'||!team||!(/^[A-Z0-9]{10}$/.test(team)))return new Response(null,{status:404,headers:{'cache-control':'no-store'}})
-        const appID=team+'.com.remorsechess.ios'
-        return json({
-          webcredentials:{apps:[appID]},
-          applinks:{details:[{appIDs:[appID],components:[{'/':'/','?':{game:'?*'}},{'/':'/','#':'email=*'}]}]},
-        })
-      }
       const asset=await env.ASSETS.fetch(req)
       if(url.pathname!=='/' || !url.searchParams.has('game')) return asset
       const matchPage=new Response(asset.body,asset)

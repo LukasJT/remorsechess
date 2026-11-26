@@ -7,7 +7,7 @@ const mails=[]
 const mf=new Miniflare(convertV4MiniflareOptions({workers:[{
   name:'auth-test',modules:true,scriptPath:process.argv[2]??'.wrangler/password-test/worker.js',
   compatibilityDate:'2025-04-01',compatibilityFlags:['nodejs_compat'],
-  bindings:{RESEND_API_KEY:'local-test-key',IOS_APP_TEAM_ID:'ABCDEF1234'},
+  bindings:{RESEND_API_KEY:'local-test-key'},
   durableObjects:{ROOMS:{className:'Room',useSQLite:true},LOBBY:{className:'Lobby',useSQLite:true}},
   serviceBindings:{GAME_LIMIT:'limits',WRITE_LIMIT:'limits',EMAIL_LIMIT:'limits'},
   stripCfConnectingIp:true,
@@ -38,16 +38,6 @@ function browser(session){
 }
 
 try {
-  const association=await mf.dispatchFetch(origin+'/.well-known/apple-app-site-association')
-  assert.equal(association.status,200)
-  assert.match(association.headers.get('content-type'),/^application\/json/)
-  const domains=await association.json()
-  assert.deepEqual(domains.webcredentials.apps,['ABCDEF1234.com.remorsechess.ios'])
-  assert.deepEqual(domains.applinks.details,[{
-    appIDs:domains.webcredentials.apps,components:[{'/':'/','?':{game:'?*'}},{'/':'/','#':'email=*'}],
-  }])
-  assert.equal((await mf.dispatchFetch('https://staging.example.com/.well-known/apple-app-site-association')).status,404)
-
   const desktop=browser(), phone=browser(), passwordDevice=browser(), linkDevice=browser()
   for(const device of [desktop,phone,passwordDevice,linkDevice])assert.equal((await device('session')).account,false)
   const email='signup@example.com', password='startpass', replacement='resetpass'
@@ -145,7 +135,7 @@ try {
   await check('session')
   await check(signIn,{email,password:replacement})
 
-  console.log('Email auth passed: signup, cross-device access, sign-in, reset, legacy account ratings and game history, and Apple domain association.')
+  console.log('Email auth passed: signup, cross-device access, sign-in, reset, and legacy account ratings and game history.')
 }finally{
   await mf.dispose()
 }
