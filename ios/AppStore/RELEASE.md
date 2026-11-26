@@ -32,7 +32,7 @@ Play offline against the computer, share one device with a friend, or try a dail
 
 **Keywords** · chess,dice,strategy,board game,puzzles,offline,multiplayer,pass and play
 
-Use the checked-in [iPhone and iPad simulator screenshots](Screenshots/README.md).
+Use the checked-in [iPhone, iPad, and iPhone Duo simulator screenshots](Screenshots/README.md). Verify the board and controls on both iPhone Duo displays when preparing with Xcode 27.1 or later.
 
 ## Before submitting for review
 
