@@ -250,9 +250,12 @@ function player(side:Side,v:Match){
   const ratedName=mode==='online'?Boolean(info?.[side]):mode==='bot'&&!quickBot&&side===human
   const displayRating=ratedName?' <span '+(mode==='bot'?'data-practice-rating ':'')+'title="'+safe((info?.ratingPool??(mode==='bot'&&v.control.seconds?pool(v.control.seconds,v.control.increment):'This game'))+(rating==null?' · No established rating':' rating'))+'">('+(rating??'?')+')</span>':''
   const privateSeat=mode==='online'?info?.bot===side:mode==='bot'&&quickBot&&side!==human
+  const isOpponent=mode==='online'?Boolean(seat&&side!==seat&&info?.[side]):privateSeat
+  const opponentType=session?.admin&&isOpponent?(privateSeat?'Bot':'Human'):''
+  const opponentBadge=opponentType?'<span class="opponent-type" title="Opponent type (admins only)">'+opponentType+'</span>':''
   const country=mode==='online'?info?.countries?.[side]:mode==='bot'&&side===human?quickCountry:''
   const handle=privateSeat?button('private-profile',safe(who)):safe(who)
-  return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'">'+(scientist?'<span class="scientist-match-avatar">'+scientistPortrait(scientist)+'</span>':'<span class="icon '+side+'">♚</span>')+'<div><b>'+flag(country??'')+handle+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+(scientist?' · '+scientist.elo+' Elo':'')+'</small></div><time id="clock-'+side+'">—</time></div>'
+  return '<div class="player '+(side===v.game.side&&!v.game.result?'turn':'')+'">'+(scientist?'<span class="scientist-match-avatar">'+scientistPortrait(scientist)+'</span>':'<span class="icon '+side+'">♚</span>')+'<div><b>'+flag(country??'')+handle+displayRating+'</b><small>'+cap(side)+(seat===side?' · You':'')+(scientist?' · '+scientist.elo+' Elo':'')+'</small>'+opponentBadge+'</div><time id="clock-'+side+'">—</time></div>'
 }
 function ratingPreview({win,draw,loss,placement,projected}:RatingImpact){
   const outcomes=[['Win',win],['Draw',draw],['Loss',loss]] as const
@@ -1831,13 +1834,13 @@ if(link&&/^[a-f0-9]{64}$/.test(link)){
   render()
   void emailRedeem()
 }else route()
-void login().then(async()=>{
+void login().then(async user=>{
   const room=stored<string>(savedRoom)
   if(mode==='home'&&room&&/^[a-f0-9]{32}$/.test(room)){
     const check=await api<{resumable:boolean}>('room/'+room+'/resume-status').catch(()=>null)
     if(check&&!check.resumable&&stored<string>(savedRoom)===room)remember(savedRoom,null)
   }
-  if(mode==='home'&&!queue&&!$<HTMLDialogElement>('#modal')?.open)render()
+  if((mode==='home'&&!queue||mode==='bot'&&quickBot&&user.admin)&&!$<HTMLDialogElement>('#modal')?.open)render()
 }).catch(()=>{})
 window.setInterval(()=>{
   const count=$('#online-count')

@@ -196,6 +196,11 @@ footer { color: var(--muted); }
 .game :is(.player,.action-bar,.mobile-roll,.rating-impact,.inspector,.rescue) { background:var(--surface); border-color:var(--line); border-radius:6px; }
 .player.turn { border-color:#e4b5d5; box-shadow:inset 3px 0 var(--accent); }
 .player .icon { background:#473553; border:1px solid #85658c; border-radius:6px; }
+.opponent-type {
+  display:inline-block; margin-inline-start:.45rem; padding:.04rem .34rem;
+  border:1px solid #85658c; border-radius:4px; color:var(--paper);
+  background:var(--deep); font:600 .68rem var(--mono); white-space:nowrap;
+}
 .player time { color:var(--paper); background:var(--deep); border-radius:4px; }
 .player.turn time { background:var(--lavender); color:var(--accent-ink); }
 .player time.low, .player.turn time.low { color:#fff3e6; background:#8f304f; }
