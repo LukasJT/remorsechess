@@ -1,3 +1,4 @@
+import './board-annotations.js'
 import {openPuzzles} from './puzzles.ts'
 
 const host=document.querySelector<HTMLElement>('[data-public-puzzle]')
