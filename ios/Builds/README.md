@@ -9,4 +9,4 @@ xcrun simctl install booted RemorseChess.app
 xcrun simctl launch booted com.remorsechess.ios
 ```
 
-SHA-256: `432a6de0e8cb3f86ddc4b2f200d8c254669d183953ae81c5dfca900397ceb107`
+SHA-256: `683bc268a2cba52b073707e97fda6b67d404469d4e1309543f968d5ff2ed3f13`

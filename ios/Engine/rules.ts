@@ -25,7 +25,7 @@ export function squares(game:Game):readonly (Piece|undefined)[]{
   return board
 }
 export const at=(game:Game,square:number)=>squares(game)[square]
-export const moodNames: Record<Mood, string> = { normal:'Unaffected', devastated:'Devastated', guilty:'Guilt-ridden', psychopath:'Psychopath', bloodlust:'Bloodlust' }
+export const moodNames: Record<Mood, string> = { normal:'Unaffected', devastated:'Devastated', guilty:'Guilt-ridden', psychopath:'Berserker', bloodlust:'Bloodlust' }
 const canCapture = (p: Piece) => p.mood !== 'devastated' && p.mood !== 'guilty'
 const promotions: Kind[] = ['q', 'r', 'b', 'n']
 

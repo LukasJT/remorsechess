@@ -33,7 +33,7 @@ const featuredPuzzles=[
     slug:'the-volunteer',title:'The Volunteer',
     question:'Can a pawn take two pieces in one turn in Remorse Chess?',
     description:'Roll a six and use a pawn’s mandatory bonus move to capture the black queen. Play The Volunteer puzzle.',
-    answer:'Yes. In The Volunteer, White’s pawn on e4 captures the pawn on d5. The six makes it a psychopath. White must move that pawn again because it has a legal follow-up. From d5 it can capture the black queen on c6 before Black gets a turn.',
+    answer:'Yes. In The Volunteer, White’s pawn on e4 captures the pawn on d5. The pawn goes Berserk on a roll of six. White must move that pawn again because it has a legal follow-up. From d5 it can capture the black queen on c6 before Black gets a turn.',
     rule:'/rules/#bonus',ruleLabel:'Read the bonus-move rule',
   },
   {
@@ -61,7 +61,7 @@ for(const p of featuredPuzzles){
     return `<span class="${(i%2)===(i>>3)%2?'light':'dark'}" aria-label="${name(square)}${piece?' '+piece.side+' '+pieceNames[piece.kind]:' empty'}">${piece?symbols[piece.side][piece.kind]:''}<small>${name(square)}</small></span>`
   }).join('')
   const route='/puzzles/'+p.slug+'/'
-  await write(route,page(p.title,p.description,route,`<link rel="stylesheet" href="/public-puzzle.css"><p><a href="/puzzles/">All puzzles</a></p><p>White to move. ${escape(puzzle.goal)}</p><p><strong>Next capture roll: ${puzzle.face} · ${puzzle.face===6?'Psychopath':'Devastated'}</strong></p><button id="try-puzzle" hidden>Try this puzzle</button><section aria-label="Puzzle board" tabindex="-1" data-public-puzzle="${id}"><div class="puzzle-board" role="img" aria-label="Starting board. ${puzzle.game.pieces.map(piece=>piece.side+' '+pieceNames[piece.kind]+' on '+name(piece.square)).join(', ')}">${board}</div></section><h2>${p.question}</h2><p>${p.answer}</p><p><a href="${p.rule}">${p.ruleLabel}</a> · <a href="/">Play Remorse Chess</a></p><script type="module" src="/assets/puzzle.js"></script>`))
+  await write(route,page(p.title,p.description,route,`<link rel="stylesheet" href="/public-puzzle.css"><p><a href="/puzzles/">All puzzles</a></p><p>White to move. ${escape(puzzle.goal)}</p><p><strong>Next capture roll: ${puzzle.face} · ${puzzle.face===6?'Berserker':'Devastated'}</strong></p><button id="try-puzzle" hidden>Try this puzzle</button><section aria-label="Puzzle board" tabindex="-1" data-public-puzzle="${id}"><div class="puzzle-board" role="img" aria-label="Starting board. ${puzzle.game.pieces.map(piece=>piece.side+' '+pieceNames[piece.kind]+' on '+name(piece.square)).join(', ')}">${board}</div></section><h2>${p.question}</h2><p>${p.answer}</p><p><a href="${p.rule}">${p.ruleLabel}</a> · <a href="/">Play Remorse Chess</a></p><script type="module" src="/assets/puzzle.js"></script>`))
 }
 const sitemap=await readFile('dist/sitemap.xml','utf8')
 const entries=routes.map(route=>`  <url><loc>https://remorsechess.com${route}</loc></url>`)

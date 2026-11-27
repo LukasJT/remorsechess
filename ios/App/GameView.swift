@@ -326,7 +326,7 @@ struct GameView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(capture.map { $0.roll == nil ? "Last capture" : "Rolled \($0.roll ?? 0)" } ?? "First capture rolls the die")
                     .font(WebsiteFont.bold(16))
-                Text(capture?.captureState?.mood.title ?? "Each piece rolls once per game.")
+                Text(capture?.roll == 6 ? "Goes Berserk" : capture?.captureState?.mood.title ?? "Each piece rolls once per game.")
                     .font(WebsiteFont.regular(14, relativeTo: .footnote))
                     .foregroundStyle(Palette.muted)
             }
@@ -530,7 +530,7 @@ struct GameView: View {
                 rule("1 · Devastated", "The piece is frozen. A friendly bishop has the owner’s next three turns to absolve it before it disappears.")
                 rule("2–3 · Guilt-ridden", "The piece can move, but cannot capture until absolved.")
                 rule("4–5 · Unaffected", "The piece moves and captures normally.")
-                rule("6 · Psychopath", "If the piece captures on its first action, it must move again when a legal move exists. On its third capture it gains bloodlust, allowing only captures, including friendly pieces.")
+                rule("6 · Berserker", "When a piece goes Berserk, it must move again after capturing on the first action of its turn if it has a legal move. The Berserker gains bloodlust on its third capture and can then move only by capturing, including friendly pieces.")
             }
             Section("Absolution and victory") {
                 rule("Absolve a piece", "Select a friendly bishop next to a devastated or guilt-ridden piece, including diagonally. Tap the marked piece and choose Absolve. This spends the turn.")
