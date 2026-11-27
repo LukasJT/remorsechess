@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["35F2V4A65C.com.remorsechess.ios"],
+        "components": [
+          {"/": "/", "?": {"game": "?*"}},
+          {"/": "/", "#": "email=*"}
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["35F2V4A65C.com.remorsechess.ios"]
+  }
+}

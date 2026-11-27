@@ -94,6 +94,22 @@ try {
   await lobby.signIn(legacySession,legacy)
   const original=browser(legacySession), recovery=browser(), fresh=browser()
   for(const device of [original,recovery,fresh])await device('session')
+  const control={seconds:180,increment:0,rated:true}
+  assert.equal((await original('queue',control)).queued,true)
+  const paired=await desktop('queue',control)
+  assert.match(paired.id,/^[a-f0-9]{32}$/)
+  const room='room/'+paired.id
+  const {match}=await original(room)
+  await original(room+'/command',{id:crypto.randomUUID(),version:match.version,action:{type:'resign'}})
+  let prior
+  for(let attempt=0;attempt<40;attempt++){
+    prior=await original('profile')
+    if(prior.history.some(game=>game.id===paired.id))break
+    await new Promise(resolve=>setTimeout(resolve,250))
+  }
+  const priorHistory=await original('rating-history?pool=Blitz')
+  assert.equal(prior.ratings.Blitz.games,1)
+  assert.equal(priorHistory.events[0]?.id,paired.id)
   await original(start,{email:legacyEmail,link:true})
   await recovery(finish,{code:codeFor(legacyEmail)})
   assert.equal((await recovery('profile')).user.id,legacy.id)
@@ -102,7 +118,12 @@ try {
   await original(start,{email:legacyEmail,purpose:'reset'})
   const setup=codeFor(legacyEmail)
   await fresh(finish,{code:setup,password})
-  assert.equal((await fresh('profile')).user.id,legacy.id)
+  const existingProfile=await fresh('profile')
+  assert.equal(existingProfile.user.id,legacy.id)
+  assert.deepEqual(existingProfile.ratings,prior.ratings)
+  assert.deepEqual(existingProfile.history,prior.history)
+  assert.deepEqual(await fresh('rating-history?pool=Blitz'),priorHistory)
+  assert.equal((await fresh(room)).match.game.result.reason,'Resignation')
   await clearCooldown(email)
   await phone(start,{email,purpose:'signup'})
   const existingSignup=codeFor(email)
@@ -114,7 +135,7 @@ try {
   await check('session')
   await check(signIn,{email,password:replacement})
 
-  console.log('Email auth passed: signup, cross-device access, password sign-in, link sign-in, reset, and legacy accounts.')
+  console.log('Email auth passed: signup, cross-device access, sign-in, reset, and legacy account ratings and game history.')
 }finally{
   await mf.dispose()
 }
