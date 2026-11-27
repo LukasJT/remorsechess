@@ -69,6 +69,6 @@ The November 24, 2026 baseline below is from web search results. The three promp
 | --- | --- | --- |
 | Where can I play Remorse Chess? | [A browser implementation on another domain](https://chess-andremorseq17.upfling.site/) | Homepage |
 | What’s the TikTok chess game where a bishop forgives pieces? | [Geeks Are Sexy coverage](https://www.geeksaresexy.net/2026/11/17/this-chess-game-has-murder-guilt-and-a-bishop-who-grants-absolution/) | History and Rules |
-| How does a psychopath pawn work in Remorse Chess? | [Neatorama coverage of the guilt mechanic](https://www.neatorama.com/2026/11/16/Remorse-Chess-When-Your-Pieces-Feel-Guilty/) | Rules and The Volunteer |
+| How does a Berserker pawn work in Remorse Chess? | [Neatorama coverage of the guilt mechanic](https://www.neatorama.com/2026/11/16/Remorse-Chess-When-Your-Pieces-Feel-Guilty/) | Rules and The Volunteer |
 
 Use https://remorsechess.com/puzzles/the-volunteer/ as the destination when sharing The Volunteer trailer.

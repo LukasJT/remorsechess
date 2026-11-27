@@ -205,7 +205,7 @@ struct BoardView: View {
         switch mood {
         case .devastated: Palette.color(0x613846)
         case .guilty: Palette.color(0x543c8a)
-        case .psychopath, .bloodlust: Palette.color(0x98283a)
+        case .berserker, .bloodlust: Palette.color(0x98283a)
         case .normal: Palette.deep
         }
     }
