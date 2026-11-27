@@ -2,8 +2,35 @@ import SwiftUI
 
 struct BoardView: View {
     let model: GameModel
+    @State private var marks: [BoardMark] = []
+    @State private var drawing = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            board
+            HStack(spacing: 12) {
+                Button {
+                    drawing.toggle()
+                } label: {
+                    Label("Draw", systemImage: "pencil.tip")
+                }
+                .accessibilityLabel("Draw arrows and highlight squares")
+                .accessibilityAddTraits(drawing ? .isSelected : [])
+                .tint(drawing ? Palette.pink : Palette.muted)
+                if !marks.isEmpty {
+                    Button("Clear marks") { marks.removeAll() }
+                        .tint(Palette.muted)
+                }
+            }
+            .font(WebsiteFont.semibold(15))
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+        }
+        .onChange(of: model.position.snapshot) { _, _ in marks.removeAll() }
+        .onChange(of: model.mode == .puzzle) { _, _ in drawing = false }
+    }
+
+    private var board: some View {
         let pieces = model.pieces
         let targets = Dictionary(grouping: model.selectedActions, by: \.to)
         let previous = model.history.last?.action
@@ -12,7 +39,7 @@ struct BoardView: View {
         let checkedKing = model.position.check
             ? model.position.pieces.first { $0.kind == .king && $0.side == model.position.side }?.square : nil
 
-        GeometryReader { geometry in
+        return GeometryReader { geometry in
             let cell = geometry.size.width / 8
             VStack(spacing: 0) {
                 ForEach(0..<8) { row in
@@ -27,13 +54,19 @@ struct BoardView: View {
                             let light = (row + column).isMultiple(of: 2)
 
                             Button {
-                                model.tap(square)
+                                if drawing {
+                                    toggle(BoardMark(from: square, to: square))
+                                } else {
+                                    marks.removeAll()
+                                    model.tap(square)
+                                }
                             } label: {
                                 tile(
                                     name: name, piece: piece, light: light, column: column, row: row,
                                     selected: model.selected == square, hinted: hint == name,
                                     last: previous?.from == square || previous?.to == square,
                                     checked: checkedKing == square, isPuzzle: isPuzzle,
+                                    highlight: marks.first { $0.from == square && $0.to == square }?.ink.color,
                                     moves: moves, absolves: absolves, size: cell
                                 )
                             }
@@ -44,6 +77,24 @@ struct BoardView: View {
                             .accessibilityIdentifier("square-\(name)")
                         }
                     }
+                }
+            }
+            .overlay {
+                BoardAnnotationLayer(marks: marks, flipped: model.flipped)
+            }
+            .background {
+                SecondaryBoardInput { start, end, modifiers in
+                    mark(from: start, to: end, width: geometry.size.width, modifiers: modifiers)
+                }
+                .accessibilityHidden(true)
+            }
+            .overlay {
+                if drawing {
+                    Color.clear.contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0).onEnded { value in
+                            mark(from: value.startLocation, to: value.location, width: geometry.size.width)
+                        })
+                        .accessibilityHidden(true)
                 }
             }
         }
@@ -58,10 +109,30 @@ struct BoardView: View {
         .accessibilityLabel("Chessboard")
     }
 
+    private func toggle(_ mark: BoardMark) {
+        if let index = marks.firstIndex(where: { $0.from == mark.from && $0.to == mark.to }) {
+            if marks[index] == mark { marks.remove(at: index) }
+            else { marks[index] = mark }
+        } else {
+            marks.append(mark)
+        }
+    }
+
+    private func mark(from: CGPoint, to: CGPoint, width: CGFloat, modifiers: UIKeyModifierFlags = []) {
+        func square(at point: CGPoint) -> Int? {
+            guard width > 0, point.x >= 0, point.y >= 0, point.x < width, point.y < width else { return nil }
+            let column = Int(point.x / width * 8)
+            let row = Int(point.y / width * 8)
+            return model.flipped ? row * 8 + 7 - column : (7 - row) * 8 + column
+        }
+        guard let start = square(at: from), let end = square(at: to) else { return }
+        toggle(BoardMark(from: start, to: end, modifiers: modifiers))
+    }
+
     private func tile(
         name: String, piece: Piece?, light: Bool, column: Int, row: Int,
         selected: Bool, hinted: Bool, last: Bool, checked: Bool, isPuzzle: Bool,
-        moves: Bool, absolves: Bool, size: CGFloat
+        highlight: Color?, moves: Bool, absolves: Bool, size: CGFloat
     ) -> some View {
         let squareColor = isPuzzle
             ? (light ? Palette.puzzleLight : Palette.puzzleDark)
@@ -73,6 +144,7 @@ struct BoardView: View {
                     .stroke(Palette.color(0x48305b).opacity(0.10), lineWidth: 0.8)
                     .clipped()
             }
+            if let highlight { highlight.opacity(0.42) }
             if last {
                 Rectangle().strokeBorder(Palette.gold.opacity(0.64), lineWidth: 2.5)
             }
