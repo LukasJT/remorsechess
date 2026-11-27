@@ -1,3 +1,4 @@
+import '../ios/Resources/BoardAnnotations.js'
 import {matchingOpening,openings,replayStudy} from './openings.ts'
 import {at,captureTarget,legal,moodNames,name,play,type Action,type Game,type Side} from './rules.ts'
 import {difficulties,type Difficulty} from './bot-levels.ts'

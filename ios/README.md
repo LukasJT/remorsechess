@@ -2,6 +2,9 @@
 
 Open [RemorseChess.xcodeproj](RemorseChess.xcodeproj) in Xcode 26 or later, select the **RemorseChess** scheme and an iPhone or iPad simulator, then choose **Run**. The minimum device OS is iOS 17. A physical device or a TestFlight upload requires the project's Apple Developer team. See the [release guide](AppStore/RELEASE.md) for signing and device checks.
 
+
+[Download the compiled iOS Simulator build](Builds/README.md)
+
 ## App Store assets
 
 [App Store screenshots and upload sizes](AppStore/Screenshots/README.md)
@@ -22,6 +25,12 @@ xcodebuild -project ios/RemorseChess.xcodeproj -scheme RemorseChess \
 The Online tab uses the existing RemorseChess.com account directly. Sign in with the same method you use on the site to load the same profile, ratings, and game history. **Online options** links directly to **Profile and game history** and **Rating history**. Use **Open game or email link** to paste a Remorse Chess invitation or email link into the app.
 
 The Xcode target includes the `webcredentials:remorsechess.com` and `applinks:remorsechess.com` entitlements. The website’s Apple App Site Association file links the production domain to the signed app. Apple uses that association for passkeys in the Online tab and to route invitation and email links. **Open in Safari view** offers a separate browsing session during development. [Apple’s Associated Domains documentation](https://developer.apple.com/documentation/xcode/supporting-associated-domains)
+
+## Board annotations
+
+Right-click a square to highlight it, or right-drag between squares to draw an arrow. Shift adds green, Alt/Option adds blue, and Ctrl swaps the default highlight and arrow colors. A normal board click clears the marks.
+
+On touchscreens, select **Draw**, then tap a square or drag between squares. Use **Clear marks** to erase the annotations. The marks stay on your device.
 
 ## Engine
 

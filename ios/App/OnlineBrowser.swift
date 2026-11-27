@@ -23,6 +23,15 @@ final class OnlineBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
         configuration.allowsInlineMediaPlayback = true
         configuration.applicationNameForUserAgent = "RemorseChess-iOS"
         configuration.userContentController.addUserScript(Self.lobbyClockDefault)
+        if let url = Bundle.main.url(forResource: "BoardAnnotations", withExtension: "js"),
+           let source = try? String(contentsOf: url, encoding: .utf8) {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: "if (location.origin === 'https://remorsechess.com') {\n" + source + "\n}",
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true,
+                in: .defaultClient
+            ))
+        }
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
