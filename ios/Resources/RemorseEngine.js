@@ -323,7 +323,7 @@ var RemorseEngine = (() => {
     -36,
     15,
     -9,
-    // conditions, rescues and psychopath threshold
+    // conditions, rescues and Berserker threshold
     5,
     5,
     13,

@@ -2,7 +2,7 @@ import { file,inCheck,rank,squares,type Game,type Kind,type Side } from './rules
 
 export const prior=[
   100,315,335,505,935, // material
-  -23,-60,38,-36,15,-9, // conditions, rescues and psychopath threshold
+  -23,-60,38,-36,15,-9, // conditions, rescues and Berserker threshold
   5,5,13,29,12,8, // piece placement, development and pawn structure
   24,-85,-10,-26,9,39, // king safety, tempo and bonus phase
 ]

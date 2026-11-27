@@ -26,14 +26,15 @@ enum Kind: String, Codable, Identifiable {
 }
 
 enum Mood: String, Codable {
-    case normal, devastated, guilty, psychopath, bloodlust
+    case normal, devastated, guilty, bloodlust
+    case berserker = "psychopath"
 
     var title: String {
         switch self {
         case .normal: "Unaffected"
         case .devastated: "Devastated"
         case .guilty: "Guilt-ridden"
-        case .psychopath: "Psychopath"
+        case .berserker: "Berserker"
         case .bloodlust: "Bloodlust"
         }
     }
@@ -43,7 +44,7 @@ enum Mood: String, Codable {
         case .normal: ""
         case .devastated: "!"
         case .guilty: "×"
-        case .psychopath: "+"
+        case .berserker: "+"
         case .bloodlust: "▲"
         }
     }
