@@ -79,8 +79,8 @@ function rulesText(version:RulesVersion=CURRENT_RULES){
     ?'After capturing on the first move, the same piece must move again if it has a legal move. Otherwise, the turn ends automatically.'
     :'After capturing on the first move, move the same piece again or select End turn.'
   return (version===1?'<p>This match uses the original rules. Kings cannot be captured.</p>':'')+
-    '<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · Devastated</dt><dd>Frozen. A friendly bishop must absolve it within its owner’s next three turns.</dd><dt>2–3 · Guilt-ridden</dt><dd>Can move but cannot capture until absolved.</dd><dt>4–5 · Unaffected</dt><dd>Moves and captures normally.</dd><dt>6 · Psychopath</dt><dd>'+bonus+
-    ' At three captures, bloodlust makes it capture only, even friendly pieces.</dd></dl><p>Select a friendly bishop in any of the eight squares around a guilt-ridden or devastated piece, including the corners. Tap a piece with a green circle and choose Absolve. Absolution uses one turn. An absolved piece never rolls again.'+
+    '<p>Every piece rolls once, on its first capture.</p><dl><dt>1 · Devastated</dt><dd>Frozen. A friendly bishop must absolve it within its owner’s next three turns.</dd><dt>2–3 · Guilt-ridden</dt><dd>Can move but cannot capture until absolved.</dd><dt>4–5 · Unaffected</dt><dd>Moves and captures normally.</dd><dt>6 · Berserker</dt><dd>'+bonus+
+    ' On the Berserker’s third capture, bloodlust limits it to captures, including friendly pieces.</dd></dl><p>Select a friendly bishop in any of the eight squares around a guilt-ridden or devastated piece, including the corners. Tap a piece with a green circle and choose Absolve. Absolution uses one turn. An absolved piece never rolls again.'+
     (version===1?'':' A piece on its bonus move can capture the opposing king if it can legally reach it. That wins the game immediately. Otherwise, checkmate wins as usual.')+'</p>'
 }
 const defaults={volume:35,yells:true,diceSound:true,blood:'low',shake:false,flash:false,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,crt:false,coords:true,hints:true,autoFlip:false,confirm:true,speed:'normal',theme:'parchment',diceMotion:true,drag:true,last:true,pieces:'classic',uiSound:true,ads:true,moodMotion:true}
@@ -232,7 +232,7 @@ function home(){
   const play='<section class="panel launch"><h2>♜ PLAY <span id="online-count">'+activityLabel()+'</span></h2><div class="pad">'+
     '<div class="play-tabs" role="group" aria-label="Play mode"><button data-do="live-tab" aria-pressed="'+(playTab==='live')+'">Live</button><button data-do="daily-tab" aria-pressed="'+(playTab==='daily')+'">Daily</button></div>'+
     (canResume()?button('resume-game','Resume game','primary full'):'')+(playTab==='daily'?dailyPanel():livePanel())+'</div></section>'
-  const outcomes=[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','PSYCHOPATH','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')
+  const outcomes=[['⚀','DEVASTATED','Frozen until absolved'],['⚁ ⚂','GUILT-RIDDEN','Can’t capture'],['⚃ ⚄','UNAFFECTED','Business as usual'],['⚅','BERSERKER','Capture. Move again.']].map(([d,h,p])=>'<article><span>'+d+'</span><div><b>'+h+'</b><small>'+p+'</small></div></article>').join('')
   return '<main class="home">'+hero+play+'<section class="outcomes">'+outcomes+'</section>'+homeGuide+'</main>'
 }
 let reviewCache:{source:Match;index:number;view:Match}|null=null
@@ -840,7 +840,7 @@ function effects(match:Match):number{
     if(tile&&prefs.moodMotion){
       const flare=document.createElement('span')
       flare.className='mood-flare '+mood
-      flare.textContent={normal:'Unaffected',devastated:'Devastated',guilty:'Guilt-ridden',psychopath:'Psychopath',bloodlust:'Bloodlust'}[mood]
+      flare.textContent=e.roll===6?'Goes Berserk':moodNames[mood]
       flare.setAttribute('aria-hidden','true')
       tile.appendChild(flare)
       const delay=prefs.diceMotion?spinDuration:0

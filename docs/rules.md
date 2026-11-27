@@ -7,11 +7,11 @@ Each piece rolls once on its first capture. Promotion preserves its identity, ro
 | 1 | Devastated | Immobilized until absolved. Disappears at the end of its owner's third subsequent turn if untreated. |
 | 2–3 | Guilt-ridden | Can move without capturing until absolved. |
 | 4–5 | Unaffected | Moves and captures normally. |
-| 6 | Psychopath | When it captures on the first action of a turn it may move once more with that same piece. |
+| 6 | Berserker | When it captures on the first action of a turn it may move once more with that same piece. |
 
 A friendly bishop already on one of the eight surrounding squares can spend a turn absolving one devastated or guilt-ridden piece. A devastated or bloodlust bishop cannot absolve. A bishop cannot absolve itself. Absolution preserves the original roll so that the piece never rolls a second time.
 
-On its third capture, a psychopath immediately gains bloodlust. Bloodlust permits only captures but permits capturing friendly pieces. The same capture geometry applies. A bloodlust pawn still captures diagonally. Friendly captures count as captures. During a bonus move, the same piece may legally capture the opposing king to win immediately. The move must follow that piece’s capture geometry and keep its own king safe. Friendly kings and all kings outside the bonus phase are protected. A bonus move is optional, uses the same clock, and never grants a third action. If the piece has no legal bonus move the turn ends automatically.
+On its third capture, a Berserker immediately gains bloodlust. Bloodlust permits only captures but permits capturing friendly pieces. The same capture geometry applies. A bloodlust pawn still captures diagonally. Friendly captures count as captures. During a bonus move, the same piece may legally capture the opposing king to win immediately. The move must follow that piece’s capture geometry and keep its own king safe. Friendly kings and all kings outside the bonus phase are protected. A bonus move is optional, uses the same clock, and never grants a third action. If the piece has no legal bonus move the turn ends automatically.
 
 Kings must always remain separated by at least one square. Devastated and guilt-ridden non-king pieces do not give check. The king's own restrictions also apply to its movements. Each action must leave its own king safe before automatic effects. Unless the king was captured during the bonus move, the final turn position is evaluated for checkmate and stalemate after automatic removals. If a devastated king disappears, or a compulsory end-of-turn removal exposes its own king, the acting player loses.
 

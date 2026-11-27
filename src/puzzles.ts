@@ -1,7 +1,7 @@
 import {puzzleAt,puzzleCount} from './puzzle-book.ts'
-import {at,legal,name,play} from './rules.ts'
+import {at,legal,moodNames,name,play} from './rules.ts'
 const pieces={p:'♟',n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'}
-const rolls=['','Devastated','Guilt-ridden','Guilt-ridden','Unaffected','Unaffected','Psychopath']
+const rolls=['',moodNames.devastated,moodNames.guilty,moodNames.guilty,moodNames.normal,moodNames.normal,moodNames.psychopath]
 type Score={rating:number;done:Record<string,boolean>}
 export async function openPuzzles(modal:(html:string)=>void,user:string|undefined,api:<T>(path:string,data?:unknown)=>Promise<T>,featuredId?:number,workspace?:HTMLElement){
   const day=Math.floor(Date.now()/86400000)
@@ -56,7 +56,7 @@ export async function openPuzzles(modal:(html:string)=>void,user:string|undefine
       const sq=lesson.game.side==='white'?((7-(i>>3))*8+i%8):((i>>3)*8+7-i%8)
       const p=at(game,sq)
       const target=actions.some(a=>a.type!=='end'&&a.to===sq)
-      squares+='<button type="button" data-square="'+sq+'" class="'+(i%2===(i>>3)%2?'light':'dark')+(sq===selected?' chosen':'')+(target?' target':'')+(previousMove.includes(sq)?' last-move':'')+(hint&&name(sq)===lesson.line[step]?.slice(0,2)?' hint':'')+'" aria-label="'+name(sq)+(p?' '+p.side+' '+p.kind:'')+'"><span class="piece '+(p?.side??'')+'">'+(p?pieces[p.kind]:'')+'</span>'+(p?.roll?'<b class="puzzle-piece-state" title="'+p.mood+'">'+(p.rescue||{devastated:'!',guilty:'×',psychopath:'+',bloodlust:'▲',normal:'·'}[p.mood])+'</b>':'')+'<small>'+name(sq)+'</small></button>'
+      squares+='<button type="button" data-square="'+sq+'" class="'+(i%2===(i>>3)%2?'light':'dark')+(sq===selected?' chosen':'')+(target?' target':'')+(previousMove.includes(sq)?' last-move':'')+(hint&&name(sq)===lesson.line[step]?.slice(0,2)?' hint':'')+'" aria-label="'+name(sq)+(p?' '+p.side+' '+p.kind:'')+'"><span class="piece '+(p?.side??'')+'">'+(p?pieces[p.kind]:'')+'</span>'+(p?.roll?'<b class="puzzle-piece-state" title="'+moodNames[p.mood]+'">'+(p.rescue||{devastated:'!',guilty:'×',psychopath:'+',bloodlust:'▲',normal:'·'}[p.mood])+'</b>':'')+'<small>'+name(sq)+'</small></button>'
     }
     const boardMarkup='<div class="puzzle-board" aria-label="Puzzle chessboard">'+squares+'</div>'
     const prompt=message||(game.side==='white'?'White':'Black')+' to move.'
