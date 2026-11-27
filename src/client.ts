@@ -1,3 +1,4 @@
+import './board-annotations.js'
 import {maxScientistElo,scientistBots,scientistPortrait,type ScientistBot} from './scientist-bots.ts'
 import {puzzleAt,puzzleCount} from './puzzle-book.ts'
 import {queueHandle,thinkTime} from './queue-opponent.ts'
