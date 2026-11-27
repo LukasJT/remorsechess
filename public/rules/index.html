@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#191517">
+  <title>Remorse Chess Rules — Dice, Absolution and Bloodlust</title>
+  <meta name="description" content="Learn how to play Remorse Chess: what every die roll does, how bishops absolve pieces, how bloodlust and bonus moves work, and how to win.">
+  <link rel="canonical" href="https://remorsechess.com/rules/">
+  <link rel="icon" href="/favicon.png" type="image/png" sizes="96x96">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Remorse Chess">
+  <meta property="og:url" content="https://remorsechess.com/rules/">
+  <meta property="og:title" content="Remorse Chess Rules — Dice, Absolution and Bloodlust">
+  <meta property="og:description" content="Learn how to play Remorse Chess: what every die roll does, how bishops absolve pieces, how bloodlust and bonus moves work, and how to win.">
+  <meta property="og:image" content="https://remorsechess.com/remorse-chess-preview.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Remorse Chess logo beside a red die on a chessboard">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="/guides.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">REMORSE <span>CHESS</span></a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="/rules/" aria-current="page">Rules</a>
+        <a href="/strategy/">Strategy</a>
+        <a href="/history/">History</a>
+        <a class="play" href="/">Play online</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+
+    <div class="intro">
+      <h1>Remorse Chess <span>Rules</span></h1>
+      <p class="lede">Start with the standard chess setup. Every piece rolls a six-sided die on its first capture. The result changes what that piece can do for the rest of the game, unless a bishop absolves it.</p>
+    </div>
+    <div class="guide-layout">
+      <nav class="contents" aria-labelledby="contents-title">
+        <h2 id="contents-title">On this page</h2>
+        <ul>
+          <li><a href="#turn">A turn</a></li>
+          <li><a href="#dice">Dice results</a></li>
+          <li><a href="#absolution">Bishop absolution</a></li>
+          <li><a href="#bonus">Bonus moves</a></li>
+          <li><a href="#bloodlust">Bloodlust</a></li>
+          <li><a href="#finish">Wins and draws</a></li>
+          <li><a href="#special">Special moves</a></li>
+        </ul>
+      </nav>
+      <article class="guide-copy" aria-label="Remorse Chess rulebook">
+        <section id="turn">
+          <h2>What you can do on your turn</h2>
+          <ol>
+            <li>Make a legal move or spend the turn having a bishop absolve a friendly piece.</li>
+            <li>If a piece captures for the first time, apply its die result immediately. The move log records the result. Each piece gets exactly one roll, even after promotion or absolution.</li>
+            <li>If the capturing piece earns a bonus move and has a legal follow-up, play the second move with that same piece.</li>
+            <li>At the end of your turn, your devastated pieces count down. A piece newly devastated that turn starts counting on your next turn.</li>
+          </ol>
+          <p>White moves first. Moves, captures, and absolution must leave your own king safe. In timed games your clock runs through the bonus move, and any increment is added once when the whole turn ends.</p>
+        </section>
+        <section id="dice">
+          <h2>What each die roll means</h2>
+          <table class="rolls">
+            <thead><tr><th scope="col">Roll</th><th scope="col">State and effect</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">1</th><td><strong>Devastated.</strong> The piece is frozen. A bishop has until the end of your third subsequent turn to absolve it. Otherwise it disappears in a self-capture.</td></tr>
+              <tr><th scope="row">2–3</th><td><strong>Guilt-ridden.</strong> The piece can make ordinary non-capturing moves. A bishop must absolve it before it can capture again. Guilt has no countdown.</td></tr>
+              <tr><th scope="row">4–5</th><td><strong>Unaffected.</strong> The piece moves and captures as usual. It has used its roll.</td></tr>
+              <tr><th scope="row">6</th><td><strong>Psychopath.</strong> A capture can earn an immediate bonus move with the same piece. Its third capture triggers bloodlust.</td></tr>
+            </tbody>
+          </table>
+          <div class="example">
+            <p><strong>Example.</strong> A white knight captures on d5 and rolls a 2. It can jump to an empty f4 on a later turn, but it cannot take an enemy piece on f4 until it has been absolved.</p>
+          </div>
+        </section>
+        <section id="absolution">
+          <h2>What is the TikTok chess game where a bishop forgives pieces?</h2>
+          <p>It's <a href="/">Remorse Chess</a>, a chess variant introduced by <a href="/history/">Bardelo Bardalini on TikTok</a>. In the browser game, a friendly bishop next to a guilty or devastated piece can spend its turn absolving that piece. This restores its normal moves and captures. <a href="/puzzles/last-chance/">Try an absolution puzzle</a>.</p>
+          <p>A friendly bishop can absolve a guilt-ridden or devastated piece from any of the eight surrounding squares. The four corners count, as do the squares directly above, below, left, and right.</p>
+          <ol>
+            <li>Get your bishop next to the affected piece, or select an eligible bishop that is already there.</li>
+            <li>Select the affected piece marked with a green circle, then choose <strong>Absolve</strong>.</li>
+            <li>The bishop and the healed piece stay on their squares. The healed piece returns to normal, its countdown clears, and your turn ends.</li>
+          </ol>
+          <p>A guilt-ridden bishop can absolve another piece. A devastated or bloodlust bishop cannot, and no bishop can absolve itself. You cannot absolve on a bonus move. Moving the bishop next to the piece takes its own turn.</p>
+          <div class="example">
+            <p><strong>Example.</strong> Your rook on d4 rolls a 1. A bishop on c3 or d3 can heal it. You have three of your own turns to use <strong>Absolve</strong>, including the third. Your opponent’s turns and your capture turn do not count. If you spend your third turn moving the bishop into place, the rook disappears before you can absolve it.</p>
+          </div>
+        </section>
+        <section id="bonus">
+          <h2>How does a psychopath pawn work in Remorse Chess?</h2>
+          <p>A pawn that rolls a six on its first capture becomes a psychopath. If it has a legal follow-up after capturing on the first move of its turn, that same pawn must move again. It can capture twice in one turn if a second target is on its next forward diagonal. <a href="/puzzles/the-volunteer/">Try taking a queen with a pawn in The Volunteer</a>.</p>
+          <p>A psychopath that captures on the first move of its turn must move again if it has a legal move. This includes the capture that rolled a 6. The same piece takes the bonus move and follows its normal movement and king-safety rules. If the piece has no legal move, the turn ends automatically.</p>
+          <p>A capture on the bonus move counts toward bloodlust without earning another move. There are at most two moves in a turn. If the bonus piece can legally take the enemy king, it wins immediately, before the other side gets a turn to respond.</p>
+          <div class="example">
+            <p><strong>Example.</strong> Black’s psychopath rook takes a white piece on e5 and checks the white king on e8 along the open e-file. If the rook can legally take e8 on its bonus move, Black can capture the king and win.</p>
+          </div>
+        </section>
+        <section id="bloodlust">
+          <h2>Bloodlust and friendly captures</h2>
+          <p>On a psychopath’s third capture, including the capture that rolled the 6, it immediately gains bloodlust. Bloodlust can persist for the rest of the game and cannot be absolved. A bloodlust piece still earns a bonus after a first-move capture, but every move it makes must capture something.</p>
+          <p>It may capture a friendly piece with a legal capture, except its own king. It follows its usual geometry. A bloodlust pawn can capture diagonally forward and cannot take a piece by walking straight ahead. With no legal captures available, leave that piece where it is and play another piece on a regular turn.</p>
+        </section>
+        <section id="finish">
+          <h2>How a game ends</h2>
+          <p>You win by checkmate, capturing the opposing king on a legal bonus move, or when your opponent resigns or runs out of time. You also win if their devastated king disappears or if a disappearing piece exposes their own king to check at the end of their turn.</p>
+          <p>The game can draw by stalemate, threefold repetition, the 50-move rule, or when only two non-devastated kings remain. The position used for repetition includes variant state such as piece moods and outstanding rescue countdowns.</p>
+        </section>
+        <section id="special">
+          <h2>Castling, en passant, and promotion</h2>
+          <ul>
+            <li><strong>Castling.</strong> The usual restrictions apply. Castling is unavailable on a bonus move and with a devastated or bloodlust rook.</li>
+            <li><strong>En passant.</strong> A legal en passant capture counts as a capture. It can trigger a first roll and is unavailable to guilt-ridden pawns.</li>
+            <li><strong>Promotion.</strong> Promote to a queen, rook, bishop, or knight on the last rank. The piece keeps its mood, capture count, and any roll it has used.</li>
+          </ul>
+        </section>
+        <div class="example">
+          <p><a href="/">Play Remorse Chess</a> to try the tutorial, practice against a bot, or find an online match. For tactical examples, see the <a href="/strategy/">Remorse Chess strategy guide</a>. The <a href="/history/">history of the variant</a> links to Bardelo Bardalini’s original demonstration.</p>
+        </div>
+      </article>
+    </div>
+  </main>
+  <footer class="wrap site-footer">
+    <a href="/">Play Remorse Chess</a>
+    <a href="/rules/">Full rules</a>
+    <a href="/history/">History and creator credit</a>
+  </footer>
+</body>
+</html>
