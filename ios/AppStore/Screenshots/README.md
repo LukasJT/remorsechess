@@ -15,7 +15,7 @@ These JPEGs use actual simulator captures. Upload them in App Store Connect unde
 
 For the existing English (U.S.) listing, keep the original iPhone and iPad cards. The new iPhone Rookie card is already in the medium iPhone slot. Add the puzzle and pass-and-play cards from `iphone/`. In Media Manager, add the four cards from `iphone-large/` to the large iPhone slot and the three cards from `ipad/` to the iPad 13-inch slot. The iPhone Duo group has two outer-display and two inner-display graphics. Use filename order within each size.
 
-The large iPhone dice card uses a real 6.3-inch iPhone simulator capture scaled into the larger canvas. The other large cards use captures from the iPhone 18 Pro Max simulator.
+The Berserker feature cards for large iPhone and both iPhone Duo sizes use a 6.3-inch iPhone simulator capture framed for each canvas. The other large iPhone cards use captures from the iPhone 18 Pro Max simulator.
 
 [Apple’s screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications)
 
